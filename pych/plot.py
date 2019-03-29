@@ -15,7 +15,8 @@ def diag_plot(x,y,fld1,fld2=None,
         depth=None,log_data=False,
         mask1=None,mask2=None,
         ncolors=None,
-        c_lim=None,c_lim1=None,c_lim2=None):
+        c_lim=None,c_lim1=None,c_lim2=None,
+        cmap=None,cmap1=None,cmap2=None):
     """
     Make a figure with plots of fld1 and fld2 over x,y next to e/o
 
@@ -36,31 +37,42 @@ def diag_plot(x,y,fld1,fld2=None,
         c_lim:      two element array with colorbar limits
         c_lim1/2:   different colorbar limits for each plot
                     c_lim is used for both, c_lim1/2 are for left or right plot
+        cmap:       string or colormap object
+                    default for sequential data is 'YlGnBu_r'
+                    default for diverging data is 'BuBG_r'
+        cmap1/2:    similar logic for c_lim, c_lim1/2. 
+                    cmap is global, cmap1/2 are for individual plots
     """
 
     # Test for c_lim or c_lim1/2
     if c_lim is not None and (c_lim1 is not None or c_lim2 is not None):
         raise ValueError('Can only provide c_lim or c_lim1/2, not all three')
+    if cmap is not None and (cmap1 is not None or cmap2 is not None):
+        raise ValueError('Can only provide cmap or cmap1/2, not all three')
 
     if c_lim is not None:
         c_lim1 = c_lim
         c_lim2 = c_lim
+
+    if cmap is not None:
+        cmap1 = cmap
+        cmap2 = cmap
 
 
     plt.figure(figsize=(15,6))
     
     
     plt.subplot(1,2,1)
-    _nice_plot(x,y,fld1,title1,depth,log_data,mask1,ncolors,c_lim1)
+    _nice_plot(x,y,fld1,title1,depth,log_data,mask1,ncolors,c_lim1,cmap1)
     
     if fld2 is not None:
         plt.subplot(1,2,2)
-        _nice_plot(x,y,fld2,title2,depth,log_data,mask2,ncolors,c_lim2)
+        _nice_plot(x,y,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
     
     plt.show() 
 
 
-def _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim): 
+def _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
     """
     Non-user facing function to make a plot
     """
@@ -129,10 +141,11 @@ def _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim):
         extend_cbar = "neither"
 
     # Set colormap
-    if (cmin*cmax < 0):
-        cmap=plt.cm.get_cmap(name='BrBG_r',lut=ncolors)
-    else:
-        cmap = plt.cm.get_cmap(name='YlGnBu_r',lut=ncolors)
+    if cmap is None:
+        if (cmin*cmax < 0):
+            cmap=plt.cm.get_cmap(name='BrBG_r',lut=ncolors)
+        else:
+            cmap = plt.cm.get_cmap(name='YlGnBu_r',lut=ncolors)
 
     # At last, make the plot
     plt.pcolormesh(x,y,fld_values,
