@@ -110,25 +110,31 @@ def depth_slice(x,z,fld1,fld2=None,
     if c_lim is not None and (c_lim1 is not None or c_lim2 is not None):
         raise ValueError('Can only provide c_lim or c_lim1/2, not all three')
 
+    if cmap is not None and (cmap1 is not None or cmap2 is not None):
+        raise ValueError('Can only provide cmap or cmap1/2, not all three')
+
     if c_lim is not None:
         c_lim1 = c_lim
         c_lim2 = c_lim
 
+    if cmap is not None:
+        cmap1 = cmap
+        cmap2 = cmap
 
     plt.figure(figsize=(15,6))
     
     
     plt.subplot(1,2,1)
-    _single_depth_slice(x,y,fld1,title1,depth,log_data,mask1,ncolors,c_lim1)
+    _single_depth_slice(x,z,fld1,title1,depth,log_data,mask1,ncolors,c_lim1,cmap1)
     
     if fld2 is not None:
         plt.subplot(1,2,2)
-        _single_depth_slice(x,y,fld2,title2,depth,log_data,mask2,ncolors,c_lim2)
+        _single_depth_slice(x,z,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
     
     plt.show() 
 
 
-def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim): 
+def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
     """
     Non-user facing function to distill horizontal data to numpy array for plotting
     """
@@ -166,9 +172,9 @@ def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim):
         mask = np.where(mask==0,np.NAN,1)
         fld_values = fld_values * mask
 
-    _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim)
+    _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
 
-def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim): 
+def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
     """
     Non-user facing function to distill depth slice data to numpy array for plotting
     """
@@ -204,10 +210,10 @@ def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim):
         mask = np.where(mask==0,np.NAN,1)
         fld_values = fld_values * mask
 
-    _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim)
+    _nice_plot(x,z,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
 
 
-def _nice_plot(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim): 
+def _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
     """
     Generic plotting routine for pcolormesh
     """
