@@ -35,7 +35,7 @@ def calc_vertical_avg(fld,msk):
     
     return v_avg
 
-def calc_baro_stf(grid,ds):
+def calc_baro_stf(ds,grid):
     """
     Compute barotropic streamfunction as
 
@@ -44,14 +44,14 @@ def calc_baro_stf(grid,ds):
 
     Parameters
     ----------
-    grid        ::  xgcm grid object defined via xgcm.Grid(ds)
-    ds          ::  xarray Dataset from MITgcm output, via 
+    ds          :   xarray Dataset from MITgcm output, via 
                     e.g. xmitgcm.open_mdsdataset
                     must contain 'U' or 'UVELMASS' fields
+    grid        :   xgcm grid object defined via xgcm.Grid(ds)
 
     Output
     ------
-    baro_stf    ::  xarray DataArray containing 2D field with 
+    baro_stf    :   xarray DataArray containing 2D field with 
                     barotropic streamfunction in Sv, \psi above
     """
 
@@ -65,15 +65,72 @@ def calc_baro_stf(grid,ds):
         raise TypeError('Could not find recognizable velocity field in input dataset')
 
     # Define barotropic velocity as vertically integrated velocity
-    u_bt = (ds[ustr] * ds['hFacW'] * ds['drF']).sum(dim='Z')
+    if ustr == 'UVELMASS':
+        u_bt = (ds[ustr] * ds['drF']).sum(dim='Z')
+    else:
+        u_bt = (ds[ustr] * ds['hFacW'] * ds['drF']).sum(dim='Z')
+
+    u_bt = u_bt * ds['dyG']
 
     # Integrate in Y
-    baro_stf = grid.cumsum(-u_bt * ds['dyG'],'Y',boundary='fill',fill_value=0.)
+    baro_stf = grid.cumsum(-u_bt,'Y',boundary='fill',fill_value=0.)
 
     # Convert m/s to Sv
     baro_stf = baro_stf * 10**-6
 
     return baro_stf
+
+def calc_overturning_stf(ds,grid,doFlip=True):
+    """
+    Only for simple domains, compute meridional overturning streamfunction
+
+    Parameters
+    ----------
+    ds          :   xarray Dataset from MITgcm output, via 
+                    e.g. xmitgcm.open_mdsdataset
+                    must contain 'V' or 'VVELMASS' fields
+    grid        :   xgcm grid object defined via xgcm.Grid(ds)
+
+    doFlip      :   if true, compute by accumulating from bottom to top
+
+    Output
+    ------
+    ov_stf      :   xarray DataArray containing 2D field with 
+                    overturning streamfunction in Sv above
+    """
+
+    # Grab the right velocity field from dataset
+    if 'V' in ds.keys():
+        vstr = 'V'
+    elif 'VVELMASS' in ds.keys():
+        vstr = 'VVELMASS'
+    else:
+        raise TypeError('Could not find recognizable velocity field in input dataset')
+
+    # Compute volumetric transport
+    if vstr == 'VVELMASS':
+        v_trsp = ds[vstr] * ds['drF']
+    else:
+        v_trsp = ds[vstr] * ds['hFacS'] * ds['drF']
+
+
+    v_trsp = v_trsp * ds['dxG']
+
+    # flip dim, accumulate in vertical, flip back
+    if doFlip:
+        v_trsp = v_trsp.isel(Z=slice(None,None,-1))
+
+    ov_stf = grid.cumsum(v_trsp,'Z',boundary='fill')
+
+    if doFlip:
+        ov_stf = -ov_stf.isel(Zl=slice(None,None,-1))
+
+    # Convert m/s to Sv
+    ov_stf = ov_stf * 10**-6
+
+    return ov_stf
+    
+
 
 def calc_vel_at_mxl(ds):
     """
