@@ -43,6 +43,10 @@ def horizontal_map(x,y,fld1,fld2=None,
                     default for diverging data is 'BuBG_r'
         cmap1/2:    similar logic for c_lim, c_lim1/2. 
                     cmap is global, cmap1/2 are for individual plots
+    Returns
+    -------
+    fig : matplotlib.figure.Figure object
+
     """
 
     # Test for c_lim or c_lim1/2
@@ -60,7 +64,7 @@ def horizontal_map(x,y,fld1,fld2=None,
         cmap2 = cmap
 
 
-    plt.figure(figsize=(15,6))
+    fig = plt.figure(figsize=(15,6))
     
     
     plt.subplot(1,2,1)
@@ -71,6 +75,8 @@ def horizontal_map(x,y,fld1,fld2=None,
         _single_horizontal_map(x,y,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
     
     plt.show() 
+
+    return fig
 
 def depth_slice(x,z,fld1,fld2=None,
         title1=None,title2=None,
@@ -104,6 +110,9 @@ def depth_slice(x,z,fld1,fld2=None,
                     default for diverging data is 'BuBG_r'
         cmap1/2:    similar logic for c_lim, c_lim1/2. 
                     cmap is global, cmap1/2 are for individual plots
+    Returns
+    -------
+    fig : matplotlib.figure.Figure object
     """
 
     # Test for c_lim or c_lim1/2
@@ -121,7 +130,7 @@ def depth_slice(x,z,fld1,fld2=None,
         cmap1 = cmap
         cmap2 = cmap
 
-    plt.figure(figsize=(15,6))
+    fig = plt.figure(figsize=(15,6))
     
     
     plt.subplot(1,2,1)
@@ -132,6 +141,8 @@ def depth_slice(x,z,fld1,fld2=None,
         _single_depth_slice(x,z,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
     
     plt.show() 
+
+    return fig
 
 
 def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
