@@ -108,13 +108,12 @@ def calc_overturning_stf(ds,grid,doFlip=True):
         raise TypeError('Could not find recognizable velocity field in input dataset')
 
     # Compute volumetric transport
-    if vstr == 'VVELMASS':
-        v_trsp = ds[vstr] * ds['drF']
-    else:
-        v_trsp = ds[vstr] * ds['hFacS'] * ds['drF']
+    v_trsp = ds[vstr] * ds['dxG'] * ds['drF']
+    if vstr != 'VVELMASS':
+        print(f' *** Multiplying {vstr} by hFacS***')
+        v_trsp = v_trsp * ds['hFacS']
 
-
-    v_trsp = v_trsp * ds['dxG']
+    v_trsp = v_trsp.sum(dim=['XC'])
 
     # flip dim, accumulate in vertical, flip back
     if doFlip:
