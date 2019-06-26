@@ -264,6 +264,8 @@ def _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap):
             cmap=plt.cm.get_cmap(name='BrBG_r',lut=ncolors)
         else:
             cmap = plt.cm.get_cmap(name='YlGnBu_r',lut=ncolors)
+    elif type(cmap) is str:
+        cmap = plt.cm.get_cmap(name=cmap,lut=ncolors)
 
     # At last, make the plot
     plt.pcolormesh(x,y,fld_values,
