@@ -11,7 +11,8 @@ try:
 except ImportError:
     from collections import OrderedDict
 
-from ecco_v4_py.ecco_utils import get_basin_mask, get_llc_grid
+from ecco_v4_py.get_basin import get_basin_mask
+from ecco_v4_py.ecco_utils import get_llc_grid
 from ecco_v4_py.vector_calc import get_latitude_masks
 from ecco_v4_py.calc_section_trsp import get_section_line_masks, _parse_section_trsp_inputs
 
