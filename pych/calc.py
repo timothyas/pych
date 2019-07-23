@@ -3,15 +3,45 @@
 """
 Some quick computation functions, some in progress...
 
-   calc_vertical_avg - compute average in z dimension 
-   calc_baro_stf - compute barotropic streamfunction 
-   calc_vel_at_mxl - compute 2D velocity field at mixed layer depth
+    haversine - distance btwn two points using Haversine formula
+    calc_vertical_avg - compute average in z dimension 
+    calc_baro_stf - compute barotropic streamfunction 
+    calc_vel_at_mxl - compute 2D velocity field at mixed layer depth
 
 """
 
 import numpy as np
 import xarray as xr
 import xgcm 
+
+def haversine(lon1, lat1, lon2, lat2):
+    """Use Haversine formula to compute great circle distance
+    In kilometers
+
+    Parameters
+    ----------
+    lon1, lat1, lon2, lat2 : float
+        longitude and latitude in degrees of first and second points
+
+    Returns
+    -------
+    distance : float
+        between the two points along the great arc between them
+        in km
+    """
+
+    lon1 = np.radians(lon1)
+    lon2 = np.radians(lon2)
+    lat1 = np.radians(lat1)
+    lat2 = np.radians(lat2)
+    
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    
+    r = 6371 #km
+    h = (np.sin(dlat / 2)**2) + np.cos(lat1)*np.cos(lat2)* (np.sin(dlon/2)**2)
+    return 2*r*np.arcsin(np.sqrt(h))
+    
 
 def calc_vertical_avg(fld,msk):
     """Compute vertical average, ignoring continental or iceshelf points """
