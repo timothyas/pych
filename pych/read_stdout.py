@@ -7,15 +7,56 @@ import re
 import pandas as pd
 import numpy as np
 
+def read_stdout_timing(filepath):
+    """
+    Parse timing from STDOUT file
+
+    Parameters
+    ----------
+    filepath : str
+        path to STDOUT.* file
+
+    Returns
+    -------
+    timing_dict : dict
+        dictionary containing timing for each section of code
+    """
+
+    re_dict = {
+        'section': re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+Seconds\sin\ssection\s\"(\w+\/?\w+\s?\(?\w+\)?)\s+\[.+\]\"'),
+        'time': re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+Wall\sclock\stime\:\s+(\d+\.\d+E?.?\d+)')}
+
+    # Parse line by line, when get to the 'timing' part of the STDOUT file
+    # first grab the "section"= the part of the code timing is counted toward
+    # then the lines after that give the time, grab the Wall Clock Time
+    line_dict = {'section':[],'time':[]}
+    with open(filepath,'r') as f:
+        for line in f:
+            key, val = _parse_line(line,re_dict)
+            if key is not None:
+                line_dict[key].append(val.group(1))
+
+    # Now make a dictionary by 'section'
+    # Doing it this way because section and time are not read in as pairs
+    timing_dict = {}
+    for key, val in zip(line_dict['section'],line_dict['time']):
+        timing_dict[key] = np.double(val)
+
+    return timing_dict
+
 def read_grdchk_from_stdout(filepath):
     """
     Parse gradient check information from STDOUT.0000 files
-    Input:
-    
-        filepath:   path to STDOUT.0000 file to be parsed
 
-    Output:
-        grdchk_data: grdchk output as a pandas Dataframe
+    Parameters
+    ----------
+    filepath : str
+        path to STDOUT.0000 file to be parsed
+
+    Returns
+    -------
+    grdchk_data : pandas.DataFrame
+        grdchk output as a pandas Dataframe
         
     """
 

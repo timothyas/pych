@@ -5,6 +5,7 @@ from .calc import (
         calc_baro_stf, calc_overturning_stf, 
         calc_vel_at_mxl)
 
-from .readGrdchk import read_grdchk_from_stdout
+from .read_stdout import (
+        read_stdout_timing, read_grdchk_from_stdout)
 
-__all__ = ['plot','calc','readGrdchk']
+__all__ = ['plot','calc','read_stdout']
