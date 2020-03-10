@@ -217,8 +217,9 @@ def _convert_stereo_to_cartesian(sx, sy):
     """
 
     # Get cartesian
-    x = 2*sx / (1 + sx**2 + sy**2)
-    y = 2*sy / (1 + sx**2 + sy**2)
-    z = (-1 + sx**2 + sy**2)/(1 + sx**2 + sy**2)
+    denom = (1 + sx**2 + sy**2)
+    x = 2*sx / denom
+    y = 2*sy / denom
+    z = (-1 + sx**2 + sy**2)/denom
 
     return x, y, z
