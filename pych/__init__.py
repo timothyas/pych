@@ -5,6 +5,9 @@ from .calc import (
         calc_baro_stf, calc_overturning_stf, 
         calc_vel_at_mxl)
 
+from .get_section_masks import get_section_line_masks
+
+
 from .read_stdout import (
         read_stdout_timing, read_grdchk_from_stdout)
 
