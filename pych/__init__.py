@@ -13,4 +13,5 @@ from .interp_section import get_section_tracers
 from .read_stdout import (
         read_stdout_timing, read_grdchk_from_stdout)
 
-__all__ = ['plot','calc','interp_section','read_stdout']
+__all__ = ['plot','calc','interp_section','read_stdout',
+           'shelfice']
