@@ -9,7 +9,71 @@ Collection of quick and simple plotting functions
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
+from warnings import warn
 
+def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
+    """Make a 2D plot at the vertical level where data array
+    has it's largest value in amplitude
+
+    Parameters
+    ----------
+    xda : xarray DataArray
+        with the field to be plotted, function of (Z,Y,X)
+    use_mask : bool, optional
+        mask the field
+    ax : matplotlib axis object, optional
+        current plotting axis
+    xr_kwargs : dict, optional
+        additional arguments for xarray plotting method
+    """
+    def _make_float(xarr):
+        """useful for putting x,y,z of max val in plot title"""
+        if len(xarr)>1:
+            warn(f'{xarr.name} has more than one max location, picking first...')
+            xarr=xarr[0]
+        return float(xarr.values)
+
+    xda_max = np.abs(xda).max()
+    
+    if set(('XC','YC')).issubset(xda.dims):
+        mask = xda['maskC'] if 'maskC' in xda.coords else xr.ones_like(xda)
+        x = 'XC'
+        y = 'YC'
+    elif set(('XG','YC')).issubset(xda.dims):
+        mask = xda['maskW'] if 'maskW' in xda.coords else xr.ones_like(xda)
+        x = 'XG'
+        y = 'YC'
+    elif set(('XC','YG')).issubset(xda.dims):
+        mask = xda['maskS'] if 'maskS' in xda.coords else xr.ones_like(xda)
+        x = 'XC'
+        y = 'YG'
+    else:
+        x = 'XG'
+        y = 'YG'
+        mask = xr.ones_like(xda)
+        print(f'Unknown mask for fld: {fld}')
+        
+    # get X, Y, Z of max value
+    xda_maxloc = xda.where(xda==xda_max,drop=True)
+    if len(xda_maxloc)==0:
+        xda_maxloc = xda.where(xda==-xda_max,drop=True)
+    xsel = _make_float(xda_maxloc[x])
+    ysel = _make_float(xda_maxloc[y])
+    zsel = _make_float(xda_maxloc['Z'])
+
+    # grab the zlev
+    xda = xda.sel(Z=zsel)
+
+    # mask?
+    if use_mask:
+        xda = xda.where(mask.sel(Z=zsel))
+
+    if ax is not None:
+        xda.plot(ax=ax,**xr_kwargs)
+        ax.set_title(f'max loc (x,y,z) = ({xsel:.2f},{ysel:.2f},{zsel:.2f})')
+    else:
+        xda.plot(**xr_kwargs)
+        plt.title(f'max loc (x,y,z) = ({xsel:.2f},{ysel:.2f},{zsel:.2f})')
 
 def horizontal_map(x,y,fld1,fld2=None,
         title1=None,title2=None,
