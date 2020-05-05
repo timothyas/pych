@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 
 
-def get_section_tracers(fldc,left,right,nx=100):
+def get_section_tracers(fldc,left,right,nx=100,mask_field=True):
     """
     Interpolate a tracer field to a section line
 
@@ -18,6 +18,9 @@ def get_section_tracers(fldc,left,right,nx=100):
         Containing lon/lat bounding points
     nx : int, optional
         Number of interpolation points 
+    mask_field : bool, optional
+        Mask out "non-wet" points, if True 'maskC'
+        must be in fldc.coords
 
     Returns
     -------
@@ -36,11 +39,12 @@ def get_section_tracers(fldc,left,right,nx=100):
     xc = xr.DataArray(_mov_avg(x),dims='i')
     yc = xr.DataArray(_mov_avg(y),dims='i')
 
-    # Look for a mask for valid points
-    maskC = fldc.maskC if 'maskC' in fldc.coords else True*xr.ones_like(fldc)
-
     # do the interpolation
-    fldi = fldc.where(maskC,np.NAN).interp(XC=xc,YC=yc).to_dataset()
+    if mask_field:
+        fldi = fldc.where(fldc.maskC,np.NAN).interp(XC=xc,YC=yc).to_dataset()
+    else:
+        fldi = fldc.interp(XC=xc,YC=yc).to_dataset()
+
 
     # add lon/lat as coordinates
     fldi['xc']=xc
