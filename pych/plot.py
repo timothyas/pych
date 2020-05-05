@@ -166,7 +166,7 @@ def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
         return float(xarr.values)
 
     xda_max = np.abs(xda).max()
-    x,y,mask = _get_coords_and_mask(xda_max.coords)
+    x,y,mask = _get_coords_and_mask(xda.coords)
         
     # get X, Y, Z of max value
     xda_maxloc = xda.where(xda==xda_max,drop=True)
@@ -464,26 +464,35 @@ def _get_coords_and_mask(coords,xda_dict=None):
     """get coordinate information and mask C/W/S"""
 
     if set(('XC','YC')).issubset(coords):
-        xda = xda_dict['C'] if xda_dict is not None else None
+
         x = 'XC'
         y = 'YC'
+        xda = xda_dict['C'] if xda_dict is not None else None
         mask = coords['maskC'] if 'maskC' in coords else None
+
     elif set(('XG','YC')).issubset(coords):
-        xda = xda_dict['W'] if xda_dict is not None else None
+
+
         x = 'XG'
         y = 'YC'
+        xda = xda_dict['W'] if xda_dict is not None else None
         mask = coords['maskW'] if 'maskW' in coords else None
+
     elif set(('XC','YG')).issubset(coords):
-        xda = xda_dict['S'] if xda_dict is not None else None
+
+
         x = 'XC'
         y = 'YG'
+        xda = xda_dict['S'] if xda_dict is not None else None
         mask = coords['maskS'] if 'maskS' in coords else None
+
     else:
+
         x = 'XG'
         y = 'YG'
         mask = None
         xda = None
-        warnings.warn('Unknown mask for field at vorticity points')
+        warn('Unknown mask for field at vorticity points')
 
     if mask is None:
         warn('No mask in coordinates, returning ones')
