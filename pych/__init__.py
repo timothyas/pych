@@ -1,6 +1,7 @@
 from .plot import (
         horizontal_map, depth_slice, 
-        plot_zlev_with_max)
+        plot_zlev_with_max,
+        plot_section)
 
 from .calc import (
         haversine, calc_vertical_avg, 
