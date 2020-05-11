@@ -67,6 +67,7 @@ def plot_section(fld, left, right,
 
     ncols = ncols if not plot_sections_at_bottom else len(datasets)
     fig = plt.figure(figsize=(18,6*nrows)) if fig is None else fig
+    axs = []
     gs = fig.add_gridspec(nrows,ncols)
 
     # handle list or single
@@ -88,6 +89,7 @@ def plot_section(fld, left, right,
     if single_plot:
         ax = fig.add_subplot(gs[0,:-1]) if not plot_sections_at_bottom else \
             fig.add_subplot(gs[0,:])
+        axs.append(ax)
     for i,(ds,g,lbl) in enumerate(zip(datasets,grids,labels)):
 
         # what to plot
@@ -113,11 +115,14 @@ def plot_section(fld, left, right,
                 raise TypeError('Can''t put multiple fields on single plot')
             ax = fig.add_subplot(gs[i,:-1]) if not plot_sections_at_bottom else \
                 fig.add_subplot(gs[i,:])
+            axs.append(ax)
+
             plotme.plot.contourf(y='Z',ax=ax,**xr_kwargs)
         else:
             if not single_plot:
                 ax = fig.add_subplot(gs[i,:-1]) if not plot_sections_at_bottom else \
                     fig.add_subplot(gs[i,:])
+                axs.append(ax)
             plot_dim = x if rm_dim==y else y
             plotme.plot.line(x=plot_dim,ax=ax,label=lbl,**xr_kwargs)
             ax.grid()
@@ -137,11 +142,11 @@ def plot_section(fld, left, right,
 
         datasets[i].Depth.where(datasets[i].maskC.any('Z')).plot(
                 ax=axb,cmap=cmap_deep,add_colorbar=False)
-        m['C'].cumsum(dim=rm_dim).where(m['C']).plot(ax=axb,cmap='Greys',add_colorbar=False)
+        m['C'].cumsum(dim=rm_dim[0]+'C').where(m['C']).plot(ax=axb,cmap='Greys',add_colorbar=False)
         axb.set(title=f'',ylabel='',xlabel='')
+        axs.append(axb)
 
-    plt.show()
-    return fig
+    return fig,axs
 
 def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
     """Make a 2D plot at the vertical level where data array
