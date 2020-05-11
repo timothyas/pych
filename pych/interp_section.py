@@ -84,8 +84,8 @@ def get_section_trsp(fldx,fldy,grid,left,right,nx=100):
     # interp to mid point
     # create an index variable: i
     # interpolated result will live along this coordinate
-    xc = xr.DataArray(mov_avg(x),dims='i')
-    yc = xr.DataArray(mov_avg(y),dims='i')
+    xc = xr.DataArray(_mov_avg(x),dims='i')
+    yc = xr.DataArray(_mov_avg(y),dims='i')
 
     # Look for a mask for valid points
     maskW = fldx.maskW if 'maskW' in fldx.coords else True*xr.ones_like(fldx)
