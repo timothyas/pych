@@ -162,6 +162,11 @@ def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
         current plotting axis
     xr_kwargs : dict, optional
         additional arguments for xarray plotting method
+
+    Returns
+    -------
+    z : float
+        height of zlevel at maximum
     """
     def _make_float(xarr):
         """useful for putting x,y,z of max val in plot title"""
@@ -194,6 +199,8 @@ def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
     else:
         xda.plot(**xr_kwargs)
         plt.title(f'max loc (x,y,z) = ({xsel:.2f},{ysel:.2f},{zsel:.2f})')
+
+    return zsel
 
 def horizontal_map(x,y,fld1,fld2=None,
         title1=None,title2=None,
