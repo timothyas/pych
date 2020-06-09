@@ -56,6 +56,11 @@ def plot_section(fld, left, right,
         for a different figure size
     xr_kwargs : dict, optional
         arguments to pass to xarray's plotting wrapper
+
+    Returns
+    -------
+    fig : matplotlib figure object
+    axs : matplotlib axis object(s)
     """
 
     # setup the plot
