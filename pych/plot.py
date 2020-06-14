@@ -6,6 +6,7 @@ Collection of quick and simple plotting functions
   _nice_plot - underlying script for a single nice figure
 """
 
+from copy import copy
 import numpy as np
 import matplotlib.pyplot as plt
 import cmocean
@@ -13,6 +14,21 @@ import xarray as xr
 from warnings import warn
 import ecco_v4_py as ecco
 
+def fill_between_std(x,ymean,ystd,
+        ax=None,fill_alpha=0.4,**kwargs):
+    """A simple version of fill between to reduce typing"""
+
+    fill_kwargs = copy(kwargs)
+    if 'alpha' in kwargs:
+        warn(f'Resetting fill_alpha with provided alpha={kwargs["alpha"]}')
+        fill_kwargs['alpha'] = kwargs['alpha']
+    else:
+        fill_kwargs['alpha'] = fill_alpha
+
+    ax.plot(x,ymean,**kwargs) if ax is not None else plt.plot(x,ymean,**kwargs)
+    ax.fill_between(x,ymean-ystd,ymean+ystd,**fill_kwargs) if ax is not None else \
+         plt.fill_between(x,ymean-ystd,ymean+ystd,**fill_kwargs)
+    
 def plot_section(fld, left, right,
                  datasets, grids,
                  labels=None,
