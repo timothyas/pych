@@ -7,7 +7,7 @@ from pyproj import Proj, transform
 import cartopy.crs as ccrs
 
 # define starting projection
-inProj = Proj(ccrs.SouthPolarStereo())
+inProj = Proj(ccrs.SouthPolarStereo().proj4_init)
 outProj = Proj(init='epsg:4326') #<- regular latlon
 
 # Assume ds has dataset with usual xmitgcm coordinates... 
