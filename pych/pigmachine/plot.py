@@ -58,8 +58,8 @@ def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
         icol = i%ncols
         gridline_kw={}
         gridline_kw['right_labels'] = (not xr_cbar) and (icol == ncols-1)
-        gridline_kw['left_labels'] = icol == 0
-        gridline_kw['top_labels'] = irow == 0
+        gridline_kw['left_labels'] = icol == 0 if ncols>1 else True
+        gridline_kw['top_labels'] = irow == 0 if nrows>1 else True
         gridline_kw['bottom_labels'] = True#irow == nrows-1
         _make_stereo_plot(fig,ax,fld,xr_cbar,cbar_kwargs,background,
                           gridline_kw,**kwargs)
