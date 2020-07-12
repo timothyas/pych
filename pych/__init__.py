@@ -1,4 +1,5 @@
 from .plot import (
+        nice_inward_ticks,
         fill_between_std,
         horizontal_map, depth_slice, 
         plot_zlev_with_max,

@@ -14,6 +14,34 @@ import xarray as xr
 from warnings import warn
 import ecco_v4_py as ecco
 
+from matplotlib.ticker import MultipleLocator
+
+def nice_inward_ticks(ax,
+                      xminor_skip=None,yminor_skip=None):
+    """Make nice inward pointing ticks
+
+    Parameters
+    ----------
+    ax : matplotlib axis object
+
+    xminor_skip, yminor_skip : int, optional
+        interval of "minor" ticks, if None, then no minor ticks
+    """
+
+    ax.tick_params(direction='in',which='major',length=8,
+                   top=True,right=True,pad=6)
+
+    if xminor_skip is not None:
+        ax.xaxis.set_minor_locator(MultipleLocator(xminor_skip))
+    if yminor_skip is not None:
+        ax.yaxis.set_minor_locator(MultipleLocator(yminor_skip))
+
+    if xminor_skip is not None or yminor_skip is not None:
+        top = xminor_skip is not None
+        right = yminor_skip is not None
+        ax.tick_params(direction='in',which='minor',length=5,
+                       top=top,right=right,pad=6)
+
 def fill_between_std(x,ymean,ystd,
         ax=None,fill_alpha=0.4,**kwargs):
     """A simple version of fill between to reduce typing"""
