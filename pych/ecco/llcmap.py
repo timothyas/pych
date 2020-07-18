@@ -49,7 +49,7 @@ class atlantic_map:
             _, ax = plt.subplots(subplot_kw={'projection':projection})
             
             
-        field = regrid(da.values)
+        field = self.regrid(da)
 
         vmax = plt_kwargs.pop('vmax', np.nanmax(field))
         vmin = plt_kwargs.pop('vmin', np.nanmin(field))
