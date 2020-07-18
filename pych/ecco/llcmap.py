@@ -42,7 +42,8 @@ class atlantic_map:
                  cbar_label='',
                  **plt_kwargs):
 
-        assert set(da.dims) == set(['tile', 'j', 'i']), "da must have dimensions ['tile', 'j', 'i']"
+        tiledim = 'tile' if 'face' not in da.dims else 'face'
+        assert set(da.dims) == set([tiledim, 'j', 'i']), f"da must have dimensions [{tiledim}, 'j', 'i']"
 
         if ax is None:
             _, ax = plt.subplots(subplot_kw={'projection':projection})
