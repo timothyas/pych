@@ -54,9 +54,13 @@ class atlantic_map:
                                                     fill_value=None)
         vmax = plt_kwargs.pop('vmax', np.nanmax(field))
         vmin = plt_kwargs.pop('vmin', np.nanmin(field))
+        if vmax*vmin < 0:
+            vmax = np.nanmax([vmax,vmin])
+            vmin = -vmax
         
         # Handle colorbar and NaN color
-        cmap = plt_kwargs.pop('cmap', 'YlOrRd')
+        default_cmap = 'RdBu_r' if vmax*vmin < 0 else 'viridis'
+        cmap = plt_kwargs.pop('cmap', default_cmap)
         if type(cmap)==str:
             cmap = plt.cm.get_cmap(cmap)
         cmap.set_bad(color='gray',alpha=.6)
