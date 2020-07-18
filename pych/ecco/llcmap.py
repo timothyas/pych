@@ -49,10 +49,8 @@ class atlantic_map:
             _, ax = plt.subplots(subplot_kw={'projection':projection})
             
             
-        field = pr.kd_tree.resample_nearest(self.orig_grid, da.values,
-                                                    self.new_grid,
-                                                    radius_of_influence=100000,
-                                                    fill_value=None)
+        field = regrid(da.values)
+
         vmax = plt_kwargs.pop('vmax', np.nanmax(field))
         vmin = plt_kwargs.pop('vmin', np.nanmin(field))
         if vmax*vmin < 0:
@@ -98,3 +96,11 @@ class atlantic_map:
             cb.ax.tick_params()
         
         return ax
+
+    def regrid(self,xda):
+        """regrid xda based on llcmap grid"""
+        return pr.kd_tree.resample_nearest(self.orig_grid, xda.values,
+                                           self.new_grid,
+                                           radius_of_influence=100000,
+                                           fill_value=None)
+
