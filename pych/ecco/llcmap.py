@@ -6,6 +6,11 @@ This was originally copied form the xgcm documentation:
 
 Because wow, it's well written
 """
+import numpy as np
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cf
+import pyresample as pr
 
 class atlantic_map:
     
@@ -19,7 +24,7 @@ class atlantic_map:
         lats_1d = ds.YC.values.ravel()
 
         # Define original grid
-        self.orig_grid = pyresample.geometry.SwathDefinition(lons=lons_1d, lats=lats_1d)
+        self.orig_grid = pr.geometry.SwathDefinition(lons=lons_1d, lats=lats_1d)
 
         # Longitudes latitudes to which we will we interpolate
         lon_tmp = np.arange(-180, 180, dx) + dx/2
@@ -27,14 +32,12 @@ class atlantic_map:
 
         # Define the lat lon points of the two parts.
         self.new_grid_lon, self.new_grid_lat = np.meshgrid(lon_tmp, lat_tmp)
-        self.new_grid  = pyresample.geometry.GridDefinition(lons=self.new_grid_lon,
-                                                            lats=self.new_grid_lat)
+        self.new_grid  = pr.geometry.GridDefinition(lons=self.new_grid_lon,
+                                                    lats=self.new_grid_lat)
 
     def __call__(self, da, ax=None, projection=ccrs.Robinson(), lon_0=-60, 
                  lon_bds=[-100,40],
                  lat_bds=[-65,65],
-                 figsize=(12,18),
-                 fontsize=18,
                  show_cbar=True,
                  cbar_label='',
                  **plt_kwargs):
@@ -42,10 +45,10 @@ class atlantic_map:
         assert set(da.dims) == set(['tile', 'j', 'i']), "da must have dimensions ['tile', 'j', 'i']"
 
         if ax is None:
-            fig, ax = plt.subplots(figsize=figsize)
+            _, ax = plt.subplots(subplot_kw={'projection':projection})
             
             
-        field = pyresample.kd_tree.resample_nearest(self.orig_grid, da.values,
+        field = pr.kd_tree.resample_nearest(self.orig_grid, da.values,
                                                     self.new_grid,
                                                     radius_of_influence=100000,
                                                     fill_value=None)
@@ -58,8 +61,8 @@ class atlantic_map:
             cmap = plt.cm.get_cmap(cmap)
         cmap.set_bad(color='gray',alpha=.6)
 
-        gax = plt.axes(projection=projection)
-        gax.set_extent([lon_bds[0],lon_bds[1],lat_bds[0],lat_bds[1]])
+        if lon_bds is not None and lat_bds is not None:
+            ax.set_extent([lon_bds[0],lon_bds[1],lat_bds[0],lat_bds[1]])
         x,y = self.new_grid_lon, self.new_grid_lat
 
         # Find index where data is splitted for mapping
@@ -67,26 +70,26 @@ class atlantic_map:
 
 
         # Plot each separately
-        p = gax.pcolormesh(x[:,:split_lon_idx], y[:,:split_lon_idx], field[:,:split_lon_idx],
+        p = ax.pcolormesh(x[:,:split_lon_idx], y[:,:split_lon_idx], field[:,:split_lon_idx],
                            vmax=vmax, vmin=vmin, cmap=cmap, 
                            transform=ccrs.PlateCarree(), zorder=1, **plt_kwargs)
-        p = gax.pcolormesh(x[:,split_lon_idx:], y[:,split_lon_idx:], field[:,split_lon_idx:],
+        p = ax.pcolormesh(x[:,split_lon_idx:], y[:,split_lon_idx:], field[:,split_lon_idx:],
                            vmax=vmax, vmin=vmin, cmap=cmap,
                            transform=ccrs.PlateCarree(), zorder=2, **plt_kwargs)
 
         # Add land and coastlines
-        gax.add_feature(cf.LAND.with_scale('50m'), zorder=3)
-        gax.add_feature(cf.COASTLINE.with_scale('50m'), zorder=3)
+        ax.add_feature(cf.LAND.with_scale('50m'), zorder=3)
+        ax.add_feature(cf.COASTLINE.with_scale('50m'), zorder=3)
         
         # Add gridlines
-        gax.gridlines(crs=ccrs.PlateCarree(),
+        ax.gridlines(crs=ccrs.PlateCarree(),
                       draw_labels= True if projection==ccrs.Mercator() else False,
                       linewidth=2, color='gray', alpha=0.5, linestyle='--')
         
         # Colorbar...
         if show_cbar:
-            cb=plt.colorbar(p,shrink=.8,label=cbar_label,
+            cb=plt.colorbar(p,ax=ax,shrink=.8,label=cbar_label,
                             orientation='horizontal',pad=0.05)
-            cb.ax.tick_params(labelsize=fontsize)
+            cb.ax.tick_params()
         
-        return fig, gax, ax
+        return ax
