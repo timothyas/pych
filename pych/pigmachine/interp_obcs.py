@@ -5,7 +5,9 @@ Some functions for optimal interpolation: defining the interpolation operator
 import numpy as np
 import xarray as xr
 
-def interp_operator_2d( dims_in, dims_out, pack_index=None ): 
+def interp_operator_2d( dims_in, dims_out,
+                        pack_index_in=None,
+                        pack_index_out=None ): 
     """Make one interpolation operator to work on a "flattened"
     2D array
 
@@ -16,8 +18,8 @@ def interp_operator_2d( dims_in, dims_out, pack_index=None ):
     dims_in, dims_out : 2 element lists with xarray DataArrays
         contains the dimensions to interpolate from, to
         see interp_operator for this
-    pack_index : array, optional
-        defines the "wet points" for the input space
+    pack_index_in, pack_index_out : array, optional
+        defines the "wet points" for the input/output space
 
     Returns
     -------
@@ -34,7 +36,7 @@ def interp_operator_2d( dims_in, dims_out, pack_index=None ):
 
     or with pack_index
 
-    >>> F = interp_operator_2d( [ds['Y'],ds['X']], [ds2['Yobs'],ds2['Xobs']],index)
+    >>> F = interp_operator_2d( [ds['Y'],ds['X']], [ds2['Yobs'],ds2['Xobs']],index_in)
     >>> obs = F @ m.flatten()[index]
     """
 
@@ -47,7 +49,7 @@ def interp_operator_2d( dims_in, dims_out, pack_index=None ):
 
     dim_in0 = F0.shape[1]
     dim_in1 = F1.shape[1]
-    dim_in  = dim_in0*dim_in1 if pack_index is None else len(pack_index)
+    dim_in  = dim_in0*dim_in1 if pack_index_in is None else len(pack_index_in)
 
     F = np.zeros([dim_out,dim_in])
 
@@ -55,12 +57,15 @@ def interp_operator_2d( dims_in, dims_out, pack_index=None ):
         step1 = np.tile(F1,[1, dim_in0])
         step2 = np.repeat(F0[i,:], dim_in1)
         step3 = np.tile(step2,[dim_out1,1])
-        if pack_index is None:
+        if pack_index_in is None:
             step4 = step3*step1
         else:
-            step4 = step3[:,pack_index]*step1[:,pack_index]
+            step4 = step3[:,pack_index_in]*step1[:,pack_index_in]
 
         F[row:row+dim_out1,:] = step4
+
+    if pack_index_out is not None:
+        F = F[pack_index_out,:]
 
     return F
 
