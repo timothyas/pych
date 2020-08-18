@@ -2,6 +2,7 @@ from .io import (
         read_pigbin_xy, read_pigbin_yz, read_mds)
 
 from .interp_obcs import (
+        apply_ppmh, get_ppmh,
         interp_operator, interp_operator_2d)
 
 from .moorings import (make_mooring_obs,

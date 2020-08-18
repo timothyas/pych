@@ -5,6 +5,41 @@ Some functions for optimal interpolation: defining the interpolation operator
 import numpy as np
 import xarray as xr
 
+def apply_ppmh(Finterp, fld, filternorm, obs_err,
+               input_packer=None, output_packer=None):
+    """apply the prior preconditioned misfit Hessian to fld
+    (without the matern type smoothing, inverse laplacian-like operator)
+    """
+    HmTilde = get_ppmh(Finterp, filternorm, obs_err,
+                       input_packer=input_packer, output_packer=output_packer)
+
+    fld = fld.values.flatten if input_packer is None else input_packer.pack(fld)
+    fld_out = HmTilde @ fld
+
+    return fld_out if input_packer is None else input_packer.unpack(fld_out) 
+
+
+def get_ppmh(Finterp, filternorm, obs_err,
+             input_packer=None, output_packer=None):
+    """Get the prior preconditioned misfit Hessian
+    (without the matern type smoothing, inverse laplacian-like operator)
+    """
+    if output_packer is not None:
+        obs_variance = xr.where((obs_err!=0)&(output_packer.mask),
+                                obs_err**-2, 0.)
+        obs_weight = output_packer.pack(obs_variance)
+    else:
+        obs_variance = xr.where(obs_err!=0,obs_err**-2,0.)
+        obs_weight = obs_variance.values.flatten()
+
+    if input_packer is not None:
+        F_norm = Finterp * input_packer.pack(filternorm)
+    else:
+        F_norm = Finterp * filternorm.values.flatten()
+
+    # this is the prior preconditioned misfit Hessian
+    return (F_norm.T * obs_weight) @ F_norm
+
 def interp_operator_2d( dims_in, dims_out,
                         pack_index_in=None,
                         pack_index_out=None ): 
