@@ -152,13 +152,13 @@ def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None):
             smooth_fld = read_mds(fld_fname,xdalike=xdalike)
         else:
             # add a dimension, sample number
-            sample = xr.DataArray(np.arange(len(sample_num)),
-                                  coords={'sample':np.arange(len(sample_num))},
+            sample = xr.DataArray(sample_num,
+                                  coords={'sample':sample_num},
                                   dims=('sample',),name='sample')
             smooth_fld = xr.zeros_like(sample*smooth_norm)
-            for i,sn in enumerate(sample_num):
+            for sn in sample_num:
                 fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sn:04}'
-                smooth_fld.loc[{'sample':i}] = read_mds(fld_fname,xdalike=xdalike)
+                smooth_fld.loc[{'sample':sn}] = read_mds(fld_fname,xdalike=xdalike)
 
     names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
     fldlist = [smooth_fld,smooth_norm,smooth_fld*smooth_norm,
