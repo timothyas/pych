@@ -136,18 +136,33 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask):
             arr=C['randNorm'].values,
             dataprec='float64')
 
-def get_matern_dataset(run_dir,smoothOpNb,xdalike):
+def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None):
     
     ndims = len(xdalike.dims)
     smooth_mean = read_mds(f'{run_dir}/smooth{ndims}Dmean{smoothOpNb:03}',
                            xdalike=xdalike)
-    smooth_fld = read_mds(f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}',
-                          xdalike=xdalike)
     smooth_norm = read_mds(f'{run_dir}/smooth{ndims}Dnorm{smoothOpNb:03}',
                           xdalike=xdalike)
+    if sample_num is None:
+        fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}'
+        smooth_fld = read_mds(fld_fname,xdalike=xdalike)
+    else:
+        if isinstance(sample_num,int):
+            fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sample_num:04}'
+            smooth_fld = read_mds(fld_fname,xdalike=xdalike)
+        else:
+            # add a dimension, sample number
+            sample = xr.DataArray(np.arange(len(sample_num)),
+                                  coords={'sample':np.arange(len(sample_num))},
+                                  dims=('sample',),name='sample')
+            smooth_fld = xr.zeros_like(sample*smooth_norm)
+            for i,sn in enumerate(sample_num):
+                fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sn:04}'
+                smooth_fld.loc[{'sample':i}] = read_mds(fld_fname,xdalike=xdalike)
+
     names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
-    fldlist = [smooth_fld,smooth_norm,smooth_norm*smooth_fld,
-               smooth_norm*(smooth_fld-smooth_mean)]
+    fldlist = [smooth_fld,smooth_norm,smooth_fld*smooth_norm,
+               (smooth_fld-smooth_mean)*smooth_norm]
     labels = [r'$\mathcal{A}^{-1}g$',
               r'$\Lambda$',
               r'$\Lambda\mathcal{A}^{-1}g$',
