@@ -5,6 +5,20 @@ Functions related to Equatorial Under Current in ECCO
 import numpy as np
 import ecco_v4_py as ecco
 
+def get_euc_masks(ds,pt1,pt2,grid):
+    """Get masks defining EUC region
+
+    Parameters
+    ----------
+    see calc_euc
+
+    Returns
+    -------
+    maskW, maskS : xarray DataArray
+        defining W/S components
+    """
+    return ecco.calc_section_trsp._parse_section_trsp_inputs(ds,pt1,pt2,None,None,'EUC')
+
 def calc_euc(ds,pt1,pt2,grid):
     """Compute the Equatorial Under Current at 
     a specific "transect" defined by pt1,pt2.
@@ -48,7 +62,7 @@ def calc_euc(ds,pt1,pt2,grid):
     
     # --- Compute transport
     # get transport masks 
-    maskW,maskS = ecco.calc_section_trsp._parse_section_trsp_inputs(ds,pt1,pt2,None,None,'EUC')
+    maskW,maskS = get_euc_masks(ds,pt1,pt2,grid)
     
     # Get surface area for transport
     area_x = ds['drF']*ds['dyG']*maskW

@@ -1,5 +1,5 @@
 from .calc_euc import (
-    calc_euc)
+    get_euc_masks,calc_euc)
 from .calc_rho_stf import (
         calc_rho_moc, meridional_trsp_at_rho,
         calc_rho_section_stf, section_trsp_at_rho,
