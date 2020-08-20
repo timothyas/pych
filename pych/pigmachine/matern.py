@@ -97,7 +97,7 @@ def get_matern(Nx,mymask):
                         raise TypeError(f'dim order for {lbl}[{key}] is: ',val.dims)
     return C,K
 
-def write_matern(write_dir,smoothOpNb,Nx,mymask):
+def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike):
     """Write everything to describe the SPDE operator associated
     with the Matern covariance
 
@@ -111,6 +111,9 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask):
         number of neighboring grid cells to smooth by...
     mymask : xarray DataArray
         defining the ControlField
+    xdalike : xarray DataArray
+        to write the fields like, since mymask may have a different
+        ordering than what the MITgcm wants
     """
 
     ndims = len(mymask.dims)
@@ -126,15 +129,17 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask):
 
     for el in ['ux','vy','wz']:
         if el in K.keys():
+            K[el] = K[el].reindex_like(xdalike)
             wrmds(f'{write_dir}/smooth{dimstr}K{el}{smoothOpNb:03}',
                     arr=K[el].values,
                     dataprec='float64')
-    wrmds(f'{write_dir}/smooth{dimstr}Delta{smoothOpNb:03}',
-            arr=C['delta'].values,
-            dataprec='float64')
-    wrmds(f'{write_dir}/smooth{dimstr}RandNorm{smoothOpNb:03}',
-            arr=C['randNorm'].values,
-            dataprec='float64')
+
+    for f,fstr in zip(['delta','randNorm'],
+                      ['Delta','RandNorm']):
+        C[f] = C[f].reindex_like(xdalike)
+        wrmds(f'{write_dir}/smooth{dimstr}{fstr}{smoothOpNb:03}',
+              arr=C[f].values,
+              dataprec='float64')
 
 def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None):
     
