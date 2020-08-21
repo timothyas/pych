@@ -2,6 +2,7 @@ from .io import (
         read_pigbin_xy, read_pigbin_yz, read_mds)
 
 from .interp_obcs import (
+        solve_for_map,
         apply_ppmh, get_ppmh,
         interp_operator, interp_operator_2d)
 
