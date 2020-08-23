@@ -81,10 +81,13 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
 
         # --- Compute misfits, and weighted version
         misfits = ds['F'].values @ mmap - obs_mean
+        misfits_model_space = rp.to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
+        misfits_model_space = misfits_model_space.where(ds['F'].T.values @ obs_mean !=0)
         with xr.set_options(keep_attrs=True):
             ds['misfits'].loc[{'beta':b}] = to_xda(misfits,ds)
             ds['misfits_normalized'].loc[{'beta':b}] = to_xda(obs_std_inv * misfits,ds)
             ds['misfit_norm'].loc[{'beta':b}] = .5*np.linalg.norm(obs_std_inv * misfits,ord=2)
+            ds['misfits_model_space'].loc[{'beta':b}] = misfits_model_space
     return ds
 
 def apply_priorhalf_inv_yz(fld,filternorm,Nx,mask3D,mask2D,ds):
@@ -267,6 +270,7 @@ def _add_map_fields(ds):
     ds['misfits'] = xr.zeros_like(ds['beta']*ds['obs_ind'])
     ds['misfits_normalized'] = xr.zeros_like(ds['beta']*ds['obs_ind'])
     ds['misfit_norm'] = xr.zeros_like(ds['beta'])
+    ds['misfits_model_space'] = xr.zeros_like(ds['beta']*ds['ctrl_ind'])
 
     ds['initial_misfit'] = xr.zeros_like(ds['obs_ind'])
     ds['initial_misfit_normalized'] = xr.zeros_like(ds['obs_ind'])
@@ -275,21 +279,23 @@ def _add_map_fields(ds):
     # --- some descriptive attributes
     ds['m_map'].attrs = {'label':r'$\mathbf{m}_{MAP}$',
             'description':r'Maximum a Posteriori solution for control parameter $\mathbf{m}$'}
-    ds['reg_norm'].attrs = {'label':r'||$\mathbf{m}_{MAP} - \mathbf{m}_0$||_{\Gamma_{prior}^{-1}$',
-            'label2':r'||\Gamma_{prior}^{-1/2}$\mathbf{m}_{MAP} - \mathbf{m}_0$||_2',
+    ds['reg_norm'].attrs = {'label':r'$||\mathbf{m}_{MAP} - \mathbf{m}_0||_{\Gamma_{prior}^{-1}}$',
+            'label2':r'$||\Gamma_{prior}^{-1/2}(\mathbf{m}_{MAP} - \mathbf{m}_0)||_2$',
             'description':'Normed difference between initial and MAP solution, weighted by prior uncertainty'}
     ds['misfits'].attrs = {'label':r'$F\mathbf{m}_{MAP} - \mathbf{d}$',
             'description':'Difference between MAP solution and observations'}
-    ds['misfits_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}$',
+    ds['misfits_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}}$',
             'description':'Difference between MAP solution and observations, normalized by observation uncertainty'}
-    ds['misfit_norm'].attrs = {'label':r'||$F\mathbf{m}_{MAP} - \mathbf{d}$||_{\Gamma_{obs}^{-1}$',
-            'label2':r'||$\Gamma_{obs}^{-1/2}F\mathbf{m}_{MAP} - \mathbf{d}$||_2$',
+    ds['misfit_norm'].attrs = {'label':r'$||F\mathbf{m}_{MAP} - \mathbf{d}||_{\Gamma_{obs}^{-1}}$',
+            'label2':r'$||\Gamma_{obs}^{-1/2}(F\mathbf{m}_{MAP} - \mathbf{d})||_2$',
             'description':'Normed difference between MAP solution and observations, weighted by observational uncertainty'}
+    ds['misfits_model_space'].attrs = {'label':r'$\mathbf{m}_{MAP} - F^T\mathbf{d}$',
+            'description':'Difference between MAP solution and observations, in model domain'}
     ds['initial_misfit'].attrs = {'label':r'$F\mathbf{m}_0 - \mathbf{d}$',
             'description':'Difference between initial guess and observations'}
     ds['initial_misfit_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_0 - \mathbf{d}}{\sigma_{obs}}$',
             'description':'Difference between initial guess and observations, normalized by observation uncertainty'}
-    ds['initial_misfit_normvar'].attrs = {'label':r'$\Gamma_{obs}^{-1}F\mathbf{m}_0 - \mathbf{d}$',
+    ds['initial_misfit_normvar'].attrs = {'label':r'$\Gamma_{obs}^{-1}(F\mathbf{m}_0 - \mathbf{d})$',
             'description':'Difference between initial guess and observations, normalized by observational covariance'}
 
     return ds
