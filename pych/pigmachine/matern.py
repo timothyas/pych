@@ -21,27 +21,44 @@ def get_alpha(ds):
     xda.name = 'alpha'
     return xda
 
-def getF(mymask):
-    """Return Jacobian of deformation tensor as a dict"""
+def getF(mymask,Fxy=1):
+    """Return Jacobian of deformation tensor as a dict
+
+            Fux  0   0 
+        F =  0  Fvy  0
+             0   0  Fwz
+
+    or a 2D section of that...
+
+    Fxy is an additional factor on Fux and/or Fvy
+    to accentuate the horizontal scales over the vertical
+
+    Fxy must be same size as mymask, or just a scalar
+
+    """
 
     ndims = len(mymask.dims)
+
+    L = np.sqrt(mymask['rA']).broadcast_like(mymask)
+    H = mymask['drF'].broadcast_like(mymask) if 'drF' in mymask.coords else xr.ones_like(mymask)
+
+    Fxy = Fxy*xr.ones_like(mymask)
+
+    ux = Fxy*L
+    vy = Fxy*L
+    wz = H
+    
     if ndims==2:
         if set(('XC','YC')).issubset(mymask.dims):
-            return {'ux':np.sqrt(mymask['rA']),
-                    'vy':np.sqrt(mymask['rA'])}
+            return {'ux':ux,'vy':vy}
         elif set(('YC','Z')).issubset(mymask.dims):
-            return {'vy':np.sqrt(mymask['rA']).broadcast_like(mymask),
-                    'wz':mymask['drF'].broadcast_like(mymask)}
+            return {'vy':vy,'wz':wz}
         elif set(('XC','Z')).issubset(mymask.dims):
-            return {'ux':np.sqrt(mymask['rA']).broadcast_like(mymask),
-                    'wz':mymask['drF'].broadcast_like(mymask)}
+            return {'ux':ux,'wz':wz}
         else:
             raise TypeError('getF dims problem 2d')
     elif ndims==3:
-        L = np.sqrt(mymask['rA']).broadcast_like(mymask)
-        return {'ux':1,
-                'vy':1,
-                'wz':mymask['drF']/L}
+        return {'ux':ux,'vy':vy,'wz':wz}
     else:
         raise TypeError('Only 2d or 3d for this phd')
 
@@ -55,12 +72,12 @@ def get_delta(Nx,determinant,mymask):
     xda.name='delta'
     return xda
 
-def get_matern(Nx,mymask):
+def get_matern(Nx,mymask,Fxy=1):
 
     C = {}
     K = {}
     ndims = len(mymask.dims)
-    F = getF(mymask)
+    F = getF(mymask,Fxy=Fxy)
     C['alpha'] = get_alpha(mymask.to_dataset(name='mask')).broadcast_like(mymask)
     C['gamma'] = 1e-5
     C['nu'] = 1/2
@@ -97,7 +114,7 @@ def get_matern(Nx,mymask):
                         raise TypeError(f'dim order for {lbl}[{key}] is: ',val.dims)
     return C,K
 
-def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike):
+def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,Fxy=1):
     """Write everything to describe the SPDE operator associated
     with the Matern covariance
 
@@ -119,7 +136,7 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike):
     ndims = len(mymask.dims)
 
     # Make the tensor and put into big array
-    C,K = get_matern(Nx,mymask)
+    C,K = get_matern(Nx,mymask,Fxy=Fxy)
 
     # Write out the fields
     if not os.path.isdir(write_dir):
@@ -141,13 +158,15 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike):
               arr=C[f].values,
               dataprec='float64')
 
-def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None):
+def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None,
+                       read_filternorm=True):
     
     ndims = len(xdalike.dims)
-    smooth_mean = read_mds(f'{run_dir}/smooth{ndims}Dmean{smoothOpNb:03}',
-                           xdalike=xdalike)
-    smooth_norm = read_mds(f'{run_dir}/smooth{ndims}Dnorm{smoothOpNb:03}',
-                          xdalike=xdalike)
+    if read_filternorm:
+        smooth_mean = read_mds(f'{run_dir}/smooth{ndims}Dmean{smoothOpNb:03}',
+                               xdalike=xdalike)
+        smooth_norm = read_mds(f'{run_dir}/smooth{ndims}Dnorm{smoothOpNb:03}',
+                              xdalike=xdalike)
     if sample_num is None:
         fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}'
         smooth_fld = read_mds(fld_fname,xdalike=xdalike)
@@ -160,18 +179,24 @@ def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None):
             sample = xr.DataArray(sample_num,
                                   coords={'sample':sample_num},
                                   dims=('sample',),name='sample')
-            smooth_fld = xr.zeros_like(sample*smooth_norm)
+            smooth_fld = xr.zeros_like(sample*xdalike.load())
             for sn in sample_num:
                 fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sn:04}'
                 smooth_fld.loc[{'sample':sn}] = read_mds(fld_fname,xdalike=xdalike)
 
-    names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
-    fldlist = [smooth_fld,smooth_norm,smooth_fld*smooth_norm,
-               (smooth_fld-smooth_mean)*smooth_norm]
-    labels = [r'$\mathcal{A}^{-1}g$',
-              r'$\Lambda$',
-              r'$\Lambda\mathcal{A}^{-1}g$',
-              r'$\Lambda\mathcal{A}^{-1}(g-\bar{g}$']
+    if read_filternorm:
+        names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
+        fldlist = [smooth_fld,smooth_norm,smooth_fld*smooth_norm,
+                   (smooth_fld-smooth_mean)*smooth_norm]
+        labels = [r'$\mathcal{A}^{-1}g$',
+                  r'$\Lambda$',
+                  r'$\Lambda\mathcal{A}^{-1}g$',
+                  r'$\Lambda\mathcal{A}^{-1}(g-\bar{g}$']
+    else:
+        names = ['ginv']
+        fldlist = [smooth_fld]
+        labels = [r'$\mathcal{A}^{-1}g$']
+
     ds = xr.Dataset(dict(zip(names,fldlist)))
     for key,lbl in zip(ds.data_vars,labels):
         ds[key].attrs['label'] = lbl
