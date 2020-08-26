@@ -174,11 +174,14 @@ def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None,
 
         if isinstance(sample_num,list):
             sample_num = np.array(sample_num)
+        elif isinstance(sample_num,int):
+            sample_num = np.array([sample_num])
 
         sample = xr.DataArray(sample_num,
                               coords={'sample':sample_num},
                               dims=('sample',),name='sample')
-        smooth_fld = read_mds(fld_fname,xdalike=sample*xdalike,rec=sample_num)
+        smooth_fld = read_mds(fld_fname,xdalike=(sample*xdalike).squeeze(),
+                              rec=sample_num)
 
     if read_filternorm:
         names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
