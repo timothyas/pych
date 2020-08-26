@@ -167,22 +167,18 @@ def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None,
                                xdalike=xdalike)
         smooth_norm = read_mds(f'{run_dir}/smooth{ndims}Dnorm{smoothOpNb:03}',
                               xdalike=xdalike)
+    fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}'
     if sample_num is None:
-        fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}'
         smooth_fld = read_mds(fld_fname,xdalike=xdalike)
     else:
-        if isinstance(sample_num,int):
-            fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sample_num:04}'
-            smooth_fld = read_mds(fld_fname,xdalike=xdalike)
-        else:
-            # add a dimension, sample number
-            sample = xr.DataArray(sample_num,
-                                  coords={'sample':sample_num},
-                                  dims=('sample',),name='sample')
-            smooth_fld = xr.zeros_like(sample*xdalike.load())
-            for sn in sample_num:
-                fld_fname = f'{run_dir}/smooth{ndims}Dfld{smoothOpNb:03}.{sn:04}'
-                smooth_fld.loc[{'sample':sn}] = read_mds(fld_fname,xdalike=xdalike)
+
+        if isinstance(sample_num,list):
+            sample_num = np.array(sample_num)
+
+        sample = xr.DataArray(sample_num,
+                              coords={'sample':sample_num},
+                              dims=('sample',),name='sample')
+        smooth_fld = read_mds(fld_fname,xdalike=sample*xdalike,rec=sample_num)
 
     if read_filternorm:
         names = ['ginv','filternorm','ginv_norm','ginv_nomean_norm']
