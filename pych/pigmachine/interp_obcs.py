@@ -81,7 +81,7 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
 
         # --- Compute misfits, and weighted version
         misfits = ds['F'].values @ mmap - obs_mean
-        misfits_model_space = rp.to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
+        misfits_model_space = to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
         misfits_model_space = misfits_model_space.where(ds['F'].T.values @ obs_mean !=0)
         with xr.set_options(keep_attrs=True):
             ds['misfits'].loc[{'beta':b}] = to_xda(misfits,ds)
@@ -219,7 +219,6 @@ def interp_operator_2d( dims_in, dims_out,
 
     return F
 
-
 def interp_operator(dim_in,dim_out):
     """return a matrix which interpolates along a single dimension
 
@@ -256,8 +255,8 @@ def interp_operator(dim_in,dim_out):
         dZhi = Zhi-zo
         dZlo = zo-Zlo
         dZ = float(Zhi.dropna(dim_in.name).values-Zlo.dropna(dim_in.name).values)
-        Fhi = xr.where(np.isnan(Zhi),0., .5*(1 - dZhi + dZlo.shift({dim_in.name:1})))
-        Flo = xr.where(np.isnan(Zlo),0., .5*(1 - dZlo + dZhi.shift({dim_in.name:-1})))
+        Fhi = xr.where(np.isnan(Zhi),0., .5*(1 - dZhi/dZ + dZlo.shift({dim_in.name:1})/dZ))
+        Flo = xr.where(np.isnan(Zlo),0., .5*(1 - dZlo/dZ + dZhi.shift({dim_in.name:-1})/dZ))
         op.loc[{dim_out.name:zo}] = Flo+Fhi
 
     return op
