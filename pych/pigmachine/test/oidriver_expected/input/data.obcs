@@ -1,0 +1,13 @@
+# Open-boundaries
+ &OBCS_PARM01
+ OB_Iwest=180*1,
+ useOBCSprescribe=.TRUE.,
+ OBWuFile='uvel.obw',
+ OBWtFile='theta.obw',
+ OBWsFile='salt.obw', 
+ useOrlanskiWest=.FALSE.,
+ &
+
+# Orlanski parameters
+ &OBCS_PARM02
+ &

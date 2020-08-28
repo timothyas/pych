@@ -1,0 +1,6 @@
+# Packages
+ &PACKAGES
+ useOBCS        = .true.,
+ useShelfIce    = .true.,
+ usesmooth      = .true.,
+ &

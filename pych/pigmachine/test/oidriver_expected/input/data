@@ -1,0 +1,106 @@
+#:::====================
+# | Model parameters |
+# ====================
+#
+# Continuous equation parameters
+ &PARM01
+ Tref = 62*-1.9,
+ Sref = 62*34.4,
+ viscAr=1.E-3,
+ viscAhGrid=0.2,
+ viscA4Grid=0.02,
+ no_slip_sides=.FALSE.,
+ no_slip_bottom=.FALSE.,
+ diffKhT=0.01,
+ diffKrT=5.E-5,
+ diffKhS=0.01,
+ diffKrS=5.E-5,
+ bottomDragQuadratic=1.5E-3,
+ staggerTimestep = .true.,
+ tempAdvScheme=30,
+ saltAdvScheme=30,
+ vectorInvariantMomentum = .true.,
+### momImplVertAdv=.true.,
+ tempImplVertAdv=.true.,
+ saltImplVertAdv=.true.,
+ eosType='JMD95Z', 
+#tAlpha = 2.E-4,
+#sBeta  = 7.4E-4,
+ HeatCapacity_cp = 3998.0,
+ rhoConst=1030.,
+ rhoNil=1030.,
+ rhoConstFresh=1000,
+ gravity=9.81,
+ gBaro=9.81,
+ implicitDiffusion = .true.,
+ implicitViscosity = .true.,
+ rigidLid=.FALSE.,
+ implicitFreeSurface=.TRUE.,
+ useRealFreshWaterFlux = .true.,
+ exactConserv=.true.,
+# start nlfs with rstar
+ select_rStar=2,
+ nonlinFreeSurf=4,
+ hFacInf=0.1,
+#hFacSup=2.0,
+# end nlfs with rstar
+ hFacMin=0.1,
+#integr_GeoPot = 1,
+#ivdc_kappa = 0.005.,
+#useCDscheme=.true.,
+#nonHydrostatic=.true.,
+#allowFreezing = .true.,
+ readBinaryPrec=64,
+ writeBinaryPrec=64,
+ writeStatePrec=64,
+ useSingleCpuIO=.TRUE.,
+ globalFiles=.TRUE.,
+ debuglevel = 3,
+ &
+
+# Elliptic solver parameters
+ &PARM02
+ cg2dMaxIters=300,
+ cg2dTargetResidual=1.E-12,
+#cg3dMaxIters=40,
+#cg3dTargetResidual=1.E-13,
+ &
+
+# Time stepping parameters
+ &PARM03
+ nIter0=0,
+ nTimeSteps=1,
+#
+ deltaT=150.0,
+ forcing_In_AB  = .false.,
+#rCD = 0.9896,
+ abEps=0.1,
+# cAdjFreq = convective adjustment, not adjoint
+ cAdjFreq = -1.,
+ monitorFreq=2592000.,
+ adjMonitorFreq=2592000.,
+ dumpInitAndLast=.False.,
+ adjDumpFreq=2592000.,
+#
+# yearly checkpoints
+ pChkptFreq=31104000.,
+ chkptFreq=31104000.,
+ &
+
+# Gridding parameters
+ &PARM04
+ usingSphericalPolarGrid=.TRUE.,
+ xgOrigin = -102.75,
+ ygOrigin =  -75.44,
+ delR=62*20.,
+ delX=180*0.0208333,
+ delYFile='dlat.bin',
+ &
+
+# Input datasets
+ &PARM05
+ adTapeDir='tapes',
+ bathyFile='bathymetry.pig.bin',
+ hydrogThetaFile='theta.init',
+ hydrogSaltFile='salt.init',
+ &

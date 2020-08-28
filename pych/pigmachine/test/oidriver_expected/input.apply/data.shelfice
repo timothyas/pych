@@ -1,0 +1,17 @@
+# ===================================
+# | Parameters for SHELFICE package |
+# ===================================
+ &SHELFICE_PARM01
+ SHELFICEwriteState = .false.,
+ SHELFICEtopoFile='shelftopo.pig.bin',
+ SHELFICEloadAnomalyFile='pload.jmd95z.pig.bin',
+#
+ SHELFICEconserve = .true.,
+ SHELFICEboundaryLayer = .true.,
+ SHI_withBL_realFWFlux = .false.,
+ useISOMIPTD = .false.,
+#
+ SHELFICEuseGammaFrict = .false.,
+ SHI_withBL_uStarTopDz = .false.,
+ SHELFICE_oldCalcUStar = .false.,
+ &

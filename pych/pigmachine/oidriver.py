@@ -21,8 +21,8 @@ from xmitgcm import open_mdsdataset
 from MITgcmutils import rdmds, wrmds
 import rosypig as rp
 
-import .matern as matern
-import ..pigmachine as pm
+from . import matern
+from .. import pigmachine as pm
 
 class OIDriver:
     """Defines the driver for getting an Eigenvalue decomposition
@@ -30,8 +30,18 @@ class OIDriver:
 
     Example
     -------
-    myoi = OIDriver('myoi','start_experiment')
-    myoi.start_experiment(dirsdict,simdict,mymodel,obs_std)
+    To start an experiment
+
+        >>> myoi = OIDriver('myoi')
+        >>> myoi.start(dirsdict,simdict,mymodel,obs_std)
+
+    see the start method for descriptions on input parameters.
+    By default, this starts the whole show, but a different starting point
+    can be specified.
+
+    To pick up at a specific stage, e.g. specified by the string mystage
+
+        >>> myoi = OIDriver('myoi',stage=mystage)
 
     """
     slurm = {'be_nice':True,
@@ -45,7 +55,7 @@ class OIDriver:
     FxyList = [0.5,1,2,5]
     smoothOpNb = 1
     conda_env = 'py38_tim'
-    def __init__(self, experiment, stage):
+    def __init__(self, experiment,stage=None):
         """Should this initialize? Or do we want another method to do it?
         
         Parameters
@@ -55,7 +65,6 @@ class OIDriver:
         stage : str
             the stage to start or pickup at when this is called
 
-            'start_experiment' : initialize the experiment
             'range_approx_one' : first stage of range approximation
             'range_approx_two'
             'basis_projection_one'
@@ -64,20 +73,13 @@ class OIDriver:
             'save_the_evd'
         """
         self.experiment = experiment
+        self._send_to_stage(stage)
 
-        possible_stages = ['start_experiment','range_approx_one','range_approx_two', 
-                           'basis_projection_one','basis_projection_two', 
-                           'do_the_evd','save_the_evd']
-        if stage in possible_stages and stage != 'start_experiment':
-            self.pickup_experiment(stage)
-        else:
-            raise NameError(f'Incorrectly specified stage: {stage}.\n'+\
-                    'Available possibilities are: '+str(possible_stages))
 
-    def start_experiment(self,dirs,dsim,mymodel,obs_mask,obs_std,
-                         startat='range_approx_one',**kwargs):
+    def start(self,dirs,dsim,mymodel,obs_mask,obs_std,
+              startat='range_approx_one',**kwargs):
         """Start the experiment by writing everything we need to file,
-        to be read in later by "pickup_experiment"
+        to be read in later by "pickup"
 
         Parameters
         ----------
@@ -116,6 +118,9 @@ class OIDriver:
 
         # --- Add tmp netcdf directory
         dirs['nctmp'] = dirs['netcdf']+'/tmp'
+        for mydir in ['json',dirs['netcdf'],dirs['nctmp'],dirs['main_run']]:
+            _dir(mydir);
+        
 
         # --- Write the directories
         def write_json(mydict,mysuff):
@@ -134,23 +139,10 @@ class OIDriver:
         myobs.to_netcdf(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
         # --- "pickup" experiment at startat
-        self.pickup_experiment(startat)
+        self._send_to_stage(startat)
 
-    def pickup_experiment(self,stage):
-        """Read in the files saved in start_experiment, and pass to the next stage
-
-        Parameters
-        ----------
-        stage : str
-            the stage to start or pickup at when this is called
-
-            'start_experiment' : initialize the experiment
-            'range_approx_one' : first stage of range approximation
-            'range_approx_two'
-            'basis_projection_one'
-            'basis_projection_two'
-            'do_the_evd'
-            'save_the_evd'
+    def pickup(self):
+        """Read in the files saved in start, prepare self for next stage
         """
 
         # --- Read 
@@ -190,10 +182,22 @@ class OIDriver:
 
         # --- If kwargs exist, use to rewrite default attributes
         if kwargs is not None:
-            for key,val in kwargs:
+            for key,val in kwargs.items():
                 self.__dict__[key] = val
 
-        eval(f'self.{stage}()')
+    def _send_to_stage(self,stage):
+        possible_stages = ['range_approx_one','range_approx_two', 
+                           'basis_projection_one','basis_projection_two', 
+                           'do_the_evd','save_the_evd']
+
+        if stage in possible_stages:
+            self.pickup()
+            eval(f'self.{stage}()')
+        else:
+            if stage != 'start_experiment' and stage is not None:
+                raise NameError(f'Incorrectly specified stage: {stage}.\n'+\
+                    'Available possibilities are: '+str(possible_stages))
+
 
 # ---------------------------------------------------------------------
 # The actual routines!
@@ -582,7 +586,7 @@ class OIDriver:
         Parameters
         ----------
         next_stage : str
-            a string with the next stage to execute, see init or start_experiment
+            a string with the next stage to execute, see init or start
         jid_depends : list of ints or int
             with slurm job id's to wait on before submitting the next stage
         mysim : rosypig.Simulation
@@ -595,7 +599,7 @@ class OIDriver:
         # Write and submit the bash script
         bashname = write_bash_script(stage=next_stage)
         pout = mysim.launch_the_job(f'sbatch --dependency=afterany:{jid_depends} {bashname}')
-    def write_bash_script(stage,mysim):
+    def write_bash_script(self,stage,mysim):
         """Write a bash script for the next experiment stage
         """
         file_contents = '#!/bin/bash\n\n' +\
@@ -613,10 +617,11 @@ class OIDriver:
                 '"import pych.pigmachine.OIDriver as OIDriver;'+\
                 f'oid = OIDriver(\'{self.experiment}\',\'{stage}\')"\n'
 
-        fname = 'submit_oi.sh'
+        fname = self.dirs['main_run']+'/submit_oi.sh'
         with open(fname,'w') as f:
             f.write(file_contents)
         return fname
+
 
 
 # ----

@@ -1,0 +1,11 @@
+ &SMOOTH_NML
+# ---
+# 2D
+# ---
+ smooth2DFilter(1)=1,
+ smooth2DDims(1) = 'yzw',
+ smooth2DMaskName(1)='maskC',
+ smooth2DAlgorithm(1)='matern',
+ smooth2DNbRand(1)=1000,
+ smooth2DJacobiMaxIters(1)=20000,
+ &
