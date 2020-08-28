@@ -40,7 +40,6 @@ def test_start_experiment(get_many_defaults):
                   obs_mask=expected['obs_mask'],
                   obs_std=expected['obs_std'],
                   startat=None)
-    testoid.pickup()
 
     assert testoid.dirs==dirs
     assert testoid.dsim==dsim
@@ -73,7 +72,6 @@ def test_change_attributes(get_defaults):
                   slurm=myslurm,n_small=n_small,n_over=n_over,n_rand=n_rand,
                   dataprec=dataprec,NxList=NxList,FxyList=FxyList,
                   conda_env=conda_env)
-    testoid.pickup()
 
     assert testoid.slurm==myslurm
     assert testoid.n_small==n_small
@@ -96,7 +94,6 @@ def test_change_attributes(get_defaults):
                   obs_std=expected['obs_std'],
                   startat=None,
                   **kwargdict)
-    testoid.pickup()
     for key,val in kwargdict.items():
         assert testoid.__dict__[key] == val
 
@@ -110,7 +107,6 @@ def test_slurm_script(get_defaults):
                   obs_mask=expected['obs_mask'],
                   obs_std=expected['obs_std'],
                   startat=None)
-    testoid.pickup()
     mysim = Simulation('test',namelist_dir=dirs['namelist'],**dsim)
     test_file = testoid.write_bash_script('range_approx_one',mysim)
     

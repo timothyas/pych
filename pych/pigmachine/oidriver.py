@@ -139,7 +139,10 @@ class OIDriver:
         myobs.to_netcdf(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
         # --- "pickup" experiment at startat
-        self._send_to_stage(startat)
+        self.pickup()
+        startsim = rp.Simulation('startmeup',namelist_dir=dirs['namelist'],**dsim)
+        self.submit_next_stage(next_stage=startat,mysim=startsim)
+
 
     def pickup(self):
         """Read in the files saved in start, prepare self for next stage
@@ -217,7 +220,7 @@ class OIDriver:
                                     Nx=nx,mymask=self.ctrl.mask,
                                     xdalike=self.mymodel,Fxy=fxy) 
 
-                sim = Simulation(name=f'{nx:02}dx_{fxy:02}fxy_oi_ra1',
+                sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_oi_ra1',
                                  namelist_dir=self.dirs['namelist'],
                                  run_dir=self.dirs["main_run"]+f'/run.{stage_suff}',
                                  obs_dir=write_dir,
@@ -231,8 +234,8 @@ class OIDriver:
                 jid_list.append(jid)
 
         # --- Pass on to next stage
-        self.submit_next_stage(next_stage='range_approx_two',
-                               jid_depends=jid_list,mysim=sim)
+        self.submit_next_stage(next_stage='range_approx_two',mysim=sim,
+                               jid_depends=jid_list)
 
     def range_approx_two(self):
         jid_list = []
@@ -579,7 +582,7 @@ class OIDriver:
 # ---------------------------------------------------------------------
 # Stuff for organizing each stage of the run
 # ---------------------------------------------------------------------
-    def submit_next_stage(next_stage, jid_depends, mysim):
+    def submit_next_stage(self,next_stage, mysim, jid_depends=None):
         """Write a bash script and submit, which will execute next stage
         of experiment
 
@@ -593,12 +596,17 @@ class OIDriver:
             use the last simulation to create another one
         """
 
-        jid_depends = [jid_depends] if isinstance(jid_depends,int) else jid_depends
-        jid_depends = str(jid_depends).replace(', ',':').replace('[','').replace(']','')
+        bashname = self.write_bash_script(stage=next_stage,mysim=mysim)
 
-        # Write and submit the bash script
-        bashname = write_bash_script(stage=next_stage)
-        pout = mysim.launch_the_job(f'sbatch --dependency=afterany:{jid_depends} {bashname}')
+        if jid_depends is not None:
+            jid_depends = [jid_depends] if isinstance(jid_depends,int) else jid_depends
+            jid_depends = str(jid_depends).replace(', ',':').replace('[','').replace(']','')
+            slurmstring=f'sbatch --dependency=afterany:{jid_depends} {bashname}'
+        else:
+            slurmstring=f'sbatch {bashname}'
+
+        pout = mysim.launch_the_job(slurmstring)
+
     def write_bash_script(self,stage,mysim):
         """Write a bash script for the next experiment stage
         """
@@ -614,7 +622,7 @@ class OIDriver:
         file_contents += f'\n\neval "$(conda shell.bash hook)"\n'+\
                 f'conda activate {self.conda_env}\n\n'+\
                 f'python3 -c '+\
-                '"import pych.pigmachine.OIDriver as OIDriver;'+\
+                '"from pych.pigmachine import OIDriver;'+\
                 f'oid = OIDriver(\'{self.experiment}\',\'{stage}\')"\n'
 
         fname = self.dirs['main_run']+'/submit_oi.sh'
