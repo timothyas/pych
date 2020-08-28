@@ -44,6 +44,7 @@ class OIDriver:
     NxList = [10,15,20,30]
     FxyList = [0.5,1,2,5]
     smoothOpNb = 1
+    conda_env = 'py38_tim'
     def __init__(self, experiment, stage):
         """Should this initialize? Or do we want another method to do it?
         
@@ -74,7 +75,7 @@ class OIDriver:
                     'Available possibilities are: '+str(possible_stages))
 
     def start_experiment(self,dirs,dsim,mymodel,obs_mask,obs_std,
-                         **kwargs):
+                         startat='range_approx_one',**kwargs):
         """Start the experiment by writing everything we need to file,
         to be read in later by "pickup_experiment"
 
@@ -107,6 +108,8 @@ class OIDriver:
             (vertical, meridional, zonal)
         obs_std : xarray DataArray
             containing observational uncertainties (of course, at the mask points!)
+        startat : str, optional
+            stage to start at
         kwargs
             Are passed to override the default class attributes
         """
@@ -129,6 +132,9 @@ class OIDriver:
         mymodel.to_netcdf(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
         myobs = xr.Dataset({'obs_mask':obs_mask,'obs_std':obs_std})
         myobs.to_netcdf(dirs['nctmp']+f'/{self.experiment}_obs.nc')
+
+        # --- "pickup" experiment at startat
+        self.pickup_experiment(startat)
 
     def pickup_experiment(self,stage):
         """Read in the files saved in start_experiment, and pass to the next stage
@@ -195,6 +201,7 @@ class OIDriver:
 
 # --- Range Approximation
     def range_approx_one(self):
+        jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
@@ -216,11 +223,15 @@ class OIDriver:
                 sim.link_to_run_dir()
 
                 sim.write_slurm_script()
-                sim.submit_slurm(**self.slurm)
+                jid = sim.submit_slurm(**self.slurm)
+                jid_list.append(jid)
 
-        #TODO: pass to next stage
+        # --- Pass on to next stage
+        self.submit_next_stage(next_stage='range_approx_two',
+                               jid_depends=jid_list,mysim=sim)
 
     def range_approx_two(self):
+        jid_list = []
         dslistNx = []
         for nx in NxList:
             dslistFxy = []
@@ -282,7 +293,8 @@ class OIDriver:
                 sim.link_to_run_dir()
 
                 sim.write_slurm_script()
-                sim.submit_slurm(**self.slurm)
+                jid =sim.submit_slurm(**self.slurm)
+                jid_list.append(jid)
 
             # --- Keep appending the dataset with filternorm for safe keeping
             dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
@@ -292,13 +304,16 @@ class OIDriver:
         newds['F'] = rp.to_xda(self.F,newds)
         newds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
 
-        #TODO: pass off to next stage
+        # --- Pass on to next stage
+        self.submit_next_stage(next_stage='basis_projection_one',
+                               jid_depends=jid_list,mysim=sim)
 
 
 # --- Form the orthonormal basis Q and use it to project to low dim subspace
     def basis_projection_one(self):
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'{self.experiment}_filternormInterp.nc')
+        jid_list=[]
         dslistNx = []
         for nx in self.NxList:
             dslistFxy = []
@@ -360,7 +375,8 @@ class OIDriver:
                 # launch job
                 sim.link_to_run_dir()
                 sim.write_slurm_script()
-                sim.submit_slurm(**self.slurm)
+                jid = sim.submit_slurm(**self.slurm)
+                jid_list.append(jid)
         
             # get those datasets
             dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
@@ -370,9 +386,14 @@ class OIDriver:
         evds.attrs = atts
         evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
 
+        # --- Pass on to next stage
+        self.submit_next_stage(next_stage='basis_projection_two',
+                               jid_depends=jid_list,mysim=sim)
+
     def basis_projection_two(self):
         evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
         evds['filternorm'].load();
+        jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
@@ -423,12 +444,18 @@ class OIDriver:
                 # launch job
                 sim.link_to_run_dir()
                 sim.write_slurm_script()
-                sim.submit_slurm(**self.slurm)
+                jid = sim.submit_slurm(**self.slurm)
+                jid_list.append(jid)
+
+        # --- Pass on to next stage
+        self.submit_next_stage(next_stage='do_the_evd',
+                               jid_depends=jid_list,mysim=sim)
 
     def do_the_evd(self):
 
         evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
         evds['Q'].load();
+        jid_list = []
         dslistNx = []
         for nx in self.NxList:
             dslistFxy = []
@@ -494,16 +521,21 @@ class OIDriver:
                 # launch job
                 sim.link_to_run_dir()
                 sim.write_slurm_script()
-                sim.submit_slurm(**self.slurm)
+                jid = sim.submit_slurm(**self.slurm)
+                jid_list.append(jid)
 
             # --- Continue saving eigenvalues
             dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
 
-    newds = xr.concat(dslistNx,dim='Nx')
-    atts = evds.attrs.copy()
-    evds = xr.merge([newds,evds])
-    evds.attrs = atts
-    evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
+        newds = xr.concat(dslistNx,dim='Nx')
+        atts = evds.attrs.copy()
+        evds = xr.merge([newds,evds])
+        evds.attrs = atts
+        evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
+
+        # --- Pass on to next stage
+        self.submit_next_stage(next_stage='save_the_evd',
+                               jid_depends=jid_list,mysim=sim)
 
     def save_the_evd(self):
 
@@ -539,6 +571,53 @@ class OIDriver:
 
         evds['Utilde'] = xr.concat(utildeNx,dim='Nx')
         evds.to_netcdf(self.dirs['netcdf']+'/{self.experiment}_evd.nc')
+
+# ---------------------------------------------------------------------
+# Stuff for organizing each stage of the run
+# ---------------------------------------------------------------------
+    def submit_next_stage(next_stage, jid_depends, mysim):
+        """Write a bash script and submit, which will execute next stage
+        of experiment
+
+        Parameters
+        ----------
+        next_stage : str
+            a string with the next stage to execute, see init or start_experiment
+        jid_depends : list of ints or int
+            with slurm job id's to wait on before submitting the next stage
+        mysim : rosypig.Simulation
+            use the last simulation to create another one
+        """
+
+        jid_depends = [jid_depends] if isinstance(jid_depends,int) else jid_depends
+        jid_depends = str(jid_depends).replace(', ',':').replace('[','').replace(']','')
+
+        # Write and submit the bash script
+        bashname = write_bash_script(stage=next_stage)
+        pout = mysim.launch_the_job(f'sbatch --dependency=afterany:{jid_depends} {bashname}')
+    def write_bash_script(stage,mysim):
+        """Write a bash script for the next experiment stage
+        """
+        file_contents = '#!/bin/bash\n\n' +\
+            '#SBATCH -J oidriver\n' +\
+            '#SBATCH -o oidriver.%j.out\n' +\
+            '#SBATCH -e oidriver.%j.err\n' +\
+            '#SBATCH -N 1\n' +\
+            f'#SBATCH -n {mysim.procs_per_node}\n' +\
+            f'#SBATCH -p {mysim.queue_name}\n' +\
+            f'#SBATCH -t {mysim.time}\n'
+
+        file_contents += f'\n\neval "$(conda shell.bash hook)"\n'+\
+                f'conda activate {self.conda_env}\n\n'+\
+                f'python3 -c '+\
+                '"import pych.pigmachine.OIDriver as OIDriver;'+\
+                f'oid = OIDriver(\'{self.experiment}\',\'{stage}\')"\n'
+
+        fname = 'submit_oi.sh'
+        with open(fname,'w') as f:
+            f.write(file_contents)
+        return fname
+
 
 # ----
 # Helpers
