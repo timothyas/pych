@@ -34,11 +34,6 @@ class OIDriver:
     myoi.start_experiment(dirsdict,simdict,mymodel,obs_std)
 
     """
-    dirs = {}
-    machine = 'sverdrup'
-
-
-    # --- What to do with these?
     slurm = {'be_nice':True,
              'max_job_submissions':9,
              'dependency':'afterany'}
@@ -78,7 +73,8 @@ class OIDriver:
             raise NameError(f'Incorrectly specified stage: {stage}.\n'+\
                     'Available possibilities are: '+str(possible_stages))
 
-    def start_experiment(self,dirs,dsim,mymodel,obs_mask,obs_std):
+    def start_experiment(self,dirs,dsim,mymodel,obs_mask,obs_std,
+                         **kwargs):
         """Start the experiment by writing everything we need to file,
         to be read in later by "pickup_experiment"
 
@@ -93,8 +89,8 @@ class OIDriver:
             'namelist_apply' : with namelist files for all other stages, where
                 the smoothing operator is applied to an input vector
             'netcdf' : where to save netcdf files when finished
-                Note: a separate tmp/ directory is created for intermittent saves 
-            'json' : where to save json files
+                Note: a separate tmp/ directory is created inside for
+                intermittent saves 
         dsim : dict
             containing the base parameters for a rosypig.Simulation
             'machine', 'n_procs', 'exe_file', 'binary_dir', 'pickup_dir', 'time'
@@ -111,19 +107,28 @@ class OIDriver:
             (vertical, meridional, zonal)
         obs_std : xarray DataArray
             containing observational uncertainties (of course, at the mask points!)
+        kwargs
+            Are passed to override the default class attributes
         """
 
+        # --- Add tmp netcdf directory
+        dirs['nctmp'] = dirs['netcdf']+'/tmp'
+
         # --- Write the directories
-        for mydict,suff in zip([dirs,dsim],['_dirs.json','_sim.json'])
-            json_file = dirs['json'] + f'/{self.experiment}'+suff
+        def write_json(mydict,mysuff):
+            json_file = f'json/{self.experiment}'+mysuff
             with open(json_file,'w') as f:
                 json.dump(mydict, f)
 
+        write_json(dirs,'_dirs.json')
+        write_json(dsim,'_sim.json')
+        if kwargs !={}:
+            write_json(kwargs,'_kwargs.json')
+
         # --- Write ctrl and obs datasets to netcdf
-        mymodel.to_netcdf(dirs['netcdf']+f'/{self.experiment}_ctrl.nc')
-        obs_std.to_netcdf(
+        mymodel.to_netcdf(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
         myobs = xr.Dataset({'obs_mask':obs_mask,'obs_std':obs_std})
-        myobs.to_netcdf(dirs['netcdf']+f'/{self.experiment}_obs.nc')
+        myobs.to_netcdf(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
     def pickup_experiment(self,stage):
         """Read in the files saved in start_experiment, and pass to the next stage
@@ -143,21 +148,28 @@ class OIDriver:
         """
 
         # --- Read 
-        dlist = []
-        for suff in ['_dirs.json','_sim.json']:
-            json_file = dirs['json'] + '/' + self.experiment + suff
-            with open(json_file,'r') as f:
-                dlist.append(json.load(f))
+        def read_json(mysuff):
+            json_file = f'json/{self.experiment}' + mysuff
+            if not os.path.isfile(json_file):
+                return None
 
-        mymodel = xr.open_dataarray(dirs['netcdf']+f'/{self.experiment}_ctrl.nc')
-        myobs = xr.open_dataset(dirs['netcdf']+f'/{self.experiment}_obs.nc')
+            with open(json_file,'r') as f:
+                mydict = json.load(f)
+            return mydict
+
+        dirs = read_json('_dirs.json')
+        dsim = read_json('_sim.json')
+        kwargs = read_json('_kwargs.json')
+
+        mymodel = xr.open_dataarray(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
+        myobs = xr.open_dataset(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
         modeldims=list(mymodel.dims)
         obsdims = list(myobs['obs_mask'].dims)
 
         # --- Carry these things around
-        self.dirs = dlist[0]
-        self.dsim = dlist[1]
+        self.dirs = dirs
+        self.dsim = dsim
         self.mymodel = mymodel
         self.obs_std = myobs['obs_std']
         self.ctrl = rp.ControlField('ctrl',mymodel.sortby(modeldims))
@@ -169,6 +181,12 @@ class OIDriver:
         self.F = pm.interp_operator_2d(mdimssort,odimssort,
                                        pack_index_in=self.ctrl.wet_ind,
                                        pack_index_out=self.obs.wet_ind)
+
+        # --- If kwargs exist, use to rewrite default attributes
+        if kwargs is not None:
+            for key,val in kwargs:
+                self.__dict__[key] = val
+
         eval(f'self.{stage}()')
 
 # ---------------------------------------------------------------------
@@ -272,7 +290,7 @@ class OIDriver:
         newds = xr.concat(dslistNx,dim='Nx')
 
         newds['F'] = rp.to_xda(self.F,newds)
-        newds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_filternormInterp.nc')
+        newds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
 
         #TODO: pass off to next stage
 
@@ -280,7 +298,7 @@ class OIDriver:
 # --- Form the orthonormal basis Q and use it to project to low dim subspace
     def basis_projection_one(self):
 
-        evds = xr.open_dataset(self.dirs['netcdf']+f'{self.experiment}_filternormInterp.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'{self.experiment}_filternormInterp.nc')
         dslistNx = []
         for nx in self.NxList:
             dslistFxy = []
@@ -350,10 +368,10 @@ class OIDriver:
         atts = evds.attrs.copy()
         evds = xr.merge([evds,newds])
         evds.attrs = atts
-        evds.to_netcdf(self.dirs['netcdf']+'/{self.experiment}_proj1.nc')
+        evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
 
     def basis_projection_two(self):
-        evds = xr.open_dataset(self.dirs['netcdf']+'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
         evds['filternorm'].load();
         for nx in self.NxList:
             for fxy in self.FxyList:
@@ -409,7 +427,7 @@ class OIDriver:
 
     def do_the_evd(self):
 
-        evds = xr.open_dataset(self.dirs['netcdf']+'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
         evds['Q'].load();
         dslistNx = []
         for nx in self.NxList:
@@ -485,11 +503,11 @@ class OIDriver:
     atts = evds.attrs.copy()
     evds = xr.merge([newds,evds])
     evds.attrs = atts
-    evds.to_netcdf(self.dirs['netcdf']+'/{self.experiment}_proj2.nc')
+    evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
 
     def save_the_evd(self):
 
-        evds = xr.open_dataset(self.dirs['netcdf']+'/{self.experiment}_proj2.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
         evds['filternorm'].load();
 
         utildeNx = []
