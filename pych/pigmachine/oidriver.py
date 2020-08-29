@@ -174,7 +174,8 @@ class OIDriver:
         self.mymodel = mymodel
         self.obs_std = myobs['obs_std']
         self.ctrl = rp.ControlField('ctrl',mymodel.sortby(modeldims))
-        self.obs = rp.ControlField('obs',myobs['obs_mask'].sortby(obsdims))
+        self.obs = rp.ControlField('obs',
+                                   myobs['obs_mask'].sortby(obsdims).astype('bool'))
 
         # --- Get the interpolation operator
         mdimssort = [mymodel[dim].sortby(dim) for dim in modeldims]
@@ -240,9 +241,9 @@ class OIDriver:
     def range_approx_two(self):
         jid_list = []
         dslistNx = []
-        for nx in NxList:
+        for nx in self.NxList:
             dslistFxy = []
-            for fxy in FxyList:
+            for fxy in self.FxyList:
 
                 # --- Prepare reading and writing
                 read_suff = self.experiment+f'.range1.{nx:02}dx.{fxy:02}fxy'
@@ -307,7 +308,6 @@ class OIDriver:
             dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
 
         newds = xr.concat(dslistNx,dim='Nx')
-
         newds['F'] = rp.to_xda(self.F,newds)
         newds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
 
@@ -324,7 +324,7 @@ class OIDriver:
         dslistNx = []
         for nx in self.NxList:
             dslistFxy = []
-            for fxy in FxyList:
+            for fxy in self.FxyList:
     
                 # --- Prepare read and write
                 read_suff =  self.experiment+'.range1.{nx:02}dx.{fxy:02}fxy'
