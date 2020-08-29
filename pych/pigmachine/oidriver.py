@@ -327,9 +327,9 @@ class OIDriver:
             for fxy in self.FxyList:
     
                 # --- Prepare read and write
-                read_suff =  self.experiment+'.range1.{nx:02}dx.{fxy:02}fxy'
+                read_suff =  self.experiment+f'.range1.{nx:02}dx.{fxy:02}fxy'
                 read_dir = self.dirs['main_run']+'/run.'+read_suff
-                write_suff = self.experiment+'.project1.{nx:02}dx.{fxy:02}fxy'
+                write_suff = self.experiment+f'.project1.{nx:02}dx.{fxy:02}fxy'
                 write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
                 run_dir = self.dirs['main_run']+'/run.'+write_suff
 
@@ -391,23 +391,23 @@ class OIDriver:
         atts = evds.attrs.copy()
         evds = xr.merge([evds,newds])
         evds.attrs = atts
-        evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
 
         # --- Pass on to next stage
         self.submit_next_stage(next_stage='basis_projection_two',
                                jid_depends=jid_list,mysim=sim)
 
     def basis_projection_two(self):
-        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
         evds['filternorm'].load();
         jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+'.project1.{nx:02}dx.{fxy:02}fxy'
+                read_suff = self.experiment+f'.project1.{nx:02}dx.{fxy:02}fxy'
                 read_dir = self.dirs['main_run']+'/'+read_suff
-                write_suff = self.experiment+'.project2.{nx:02}dx.{fxy:02}fxy'
+                write_suff = self.experiment+f'.project2.{nx:02}dx.{fxy:02}fxy'
                 write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
                 run_dir = self.dirs['main_run']+'/run.'+write_suff
 
@@ -460,7 +460,7 @@ class OIDriver:
 
     def do_the_evd(self):
 
-        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
         evds['Q'].load();
         jid_list = []
         dslistNx = []
@@ -469,9 +469,9 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+'.project2.{nx:02}dx.{fxy:02}fxy'
+                read_suff = self.experiment+f'.project2.{nx:02}dx.{fxy:02}fxy'
                 read_dir = self.dirs['main_run']+'/'+read_suff
-                write_suff = self.experiment+'.evd.{nx:02}dx.{fxy:02}fxy'
+                write_suff = self.experiment+f'.evd.{nx:02}dx.{fxy:02}fxy'
                 write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
                 run_dir = self.dirs['main_run']+'/run.'+write_suff
 
@@ -538,7 +538,7 @@ class OIDriver:
         atts = evds.attrs.copy()
         evds = xr.merge([newds,evds])
         evds.attrs = atts
-        evds.to_netcdf(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
 
         # --- Pass on to next stage
         self.submit_next_stage(next_stage='save_the_evd',
@@ -546,7 +546,7 @@ class OIDriver:
 
     def save_the_evd(self):
 
-        evds = xr.open_dataset(self.dirs['nctmp']+'/{self.experiment}_proj2.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
         evds['filternorm'].load();
 
         utildeNx = []
@@ -555,7 +555,7 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+'.evd.{nx:02}dx.{fxy:02}fxy'
+                read_suff = self.experiment+f'.evd.{nx:02}dx.{fxy:02}fxy'
                 read_dir = self.dirs['main_run']+'/'+read_suff
                 ds = matern.get_matern_dataset(run_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -577,7 +577,7 @@ class OIDriver:
             utildeNx.append(xr.concat(utildeFxy,dim='Fxy'))
 
         evds['Utilde'] = xr.concat(utildeNx,dim='Nx')
-        evds.to_netcdf(self.dirs['netcdf']+'/{self.experiment}_evd.nc')
+        evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_evd.nc')
 
 # ---------------------------------------------------------------------
 # Stuff for organizing each stage of the run
