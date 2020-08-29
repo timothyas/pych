@@ -319,7 +319,7 @@ class OIDriver:
 # --- Form the orthonormal basis Q and use it to project to low dim subspace
     def basis_projection_one(self):
 
-        evds = xr.open_dataset(self.dirs['nctmp']+f'{self.experiment}_filternormInterp.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
         jid_list=[]
         dslistNx = []
         for nx in self.NxList:
