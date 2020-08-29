@@ -328,7 +328,7 @@ class OIDriver:
     
                 # --- Prepare read and write
                 read_suff =  self.experiment+'.range1.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs['main_dir']+'/run.'+read_suff
+                read_dir = self.dirs['main_run']+'/run.'+read_suff
                 write_suff = self.experiment+'.project1.{nx:02}dx.{fxy:02}fxy'
                 write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
                 run_dir = self.dirs['main_run']+'/run.'+write_suff
