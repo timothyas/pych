@@ -283,7 +283,8 @@ class OIDriver:
 
                 # Write matern operator and submit job
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                        Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel)
+                        Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
+                        Fxy=fxy)
 
                 sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_ra2_oi',
                                     namelist_dir=self.dirs['namelist_apply'],
@@ -362,7 +363,8 @@ class OIDriver:
             
                 # set up the run
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel)
+                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
+                                    Fxy=fxy)
 
                 sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_proj1_oi',
                                     namelist_dir=self.dirs['namelist_apply'],
@@ -425,7 +427,8 @@ class OIDriver:
                 wrmds(fname,arr=smooth2DInput,dataprec=self.dataprec)
 
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel)
+                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
+                                    Fxy=fxy)
 
                 sim = rp.Simulation(name=f'{nx:02d}dx_{fxy:02}fxy_proj2_oi',
                                     namelist_dir=self.dirs['namelist_apply'],
@@ -501,7 +504,8 @@ class OIDriver:
                 wrmds(fname,smooth2DInput,dataprec=self.dataprec)
 
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel)
+                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
+                                    Fxy=fxy)
 
                 sim = rp.Simulation(name=f'{nx:02d}dx_{fxy:02}fxy_evd_oi',
                                     namelist_dir=self.dirs['namelist_apply'],
