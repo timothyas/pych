@@ -9,7 +9,8 @@ from rosypig import to_xda, apply_matern_2d
 from .matern import get_matern
 
 def solve_for_map(ds, m0, obs_mean, obs_std,
-                  m_packer, obs_packer, Nx, mask3D, mds):
+                  m_packer, obs_packer, Nx, mask3D, mds,
+                  n_small=None):
     """Solve for m_MAP
 
     $m_{MAP} = m_0 + H^{-1}F^T R^{-1}(d - F m_0)$
@@ -31,6 +32,8 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
         this contains m_packer mask, see rosypig.apply_matern_2d
     mds : xarray Dataset
         containing the grid information for the domain m lives in
+    n_small : int, optional
+        only use the first n_small eigenmodes while applying the inverse Hessian
 
     Returns
     -------
@@ -47,6 +50,9 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
     obs_std_inv = obs_std**-1
     obs_var_inv = obs_std**-2
 
+    # --- Possibly use lower dimensional subspace
+    Utilde = ds['Utilde'].values if n_small is None else ds['Utilde'].values[:,:n_small]
+
     # --- Compute initial misfit: F m_0 - d, and weighted versions
     initial_misfit = obs_mean - ds['F'].values @ m0
     with xr.set_options(keep_attrs=True):
@@ -56,15 +62,18 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
 
     # --- Interp back to model grid and apply posterior via EVD
     misfit_model = ds['F'].T.values @ ds['initial_misfit_normvar'].values
-    u_misfit_model = ds['Utilde'].T.values @ misfit_model
+    u_misfit_model = Utilde.T @ misfit_model
     
     for b in ds.beta.values:
         # Currently not storing posterior because it will get big
         #post = ds['Utilde'].values @ np.diag(ds['Dinv'].sel(beta=b)) @ ds['Utilde'].T.values
+
+        # --- Possibly account for lower dimensional subspace
+        Dinv = ds['Dinv'].sel(beta=b).values
+        Dinv = Dinv if n_small is None else Dinv[:n_small]
         
         # --- Finish applying posterior
-        du_misfit_model = ds['Dinv'].sel(beta=b).values * u_misfit_model
-        udu_misfit_model = ds['Utilde'].values @ du_misfit_model
+        udu_misfit_model = Utilde @ (Dinv * u_misfit_model)
         
         # --- Compute the MAP point
         mmap = m0 + udu_misfit_model 
