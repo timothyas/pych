@@ -5,6 +5,7 @@ from .io import (
 
 from .interp_obcs import (
         solve_for_map,
+        submit_priorhalf,
         apply_ppmh, get_ppmh,
         interp_operator, interp_operator_2d)
 

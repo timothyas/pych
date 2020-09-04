@@ -2,15 +2,21 @@
 Some functions for optimal interpolation: defining the interpolation operator
 """
 
+import os
 import numpy as np
 import xarray as xr
+import subprocess
+from shutil import rmtree
+from time import sleep
+from MITgcmutils import wrmds,rdmds
 
-from rosypig import to_xda, apply_matern_2d
-from .matern import get_matern
+from rosypig import to_xda, apply_matern_2d, inverse_matern_2d,Simulation
+from .matern import get_matern,write_matern,write_matern
+from .io import read_mds
 
 def solve_for_map(ds, m0, obs_mean, obs_std,
-                  m_packer, obs_packer, Nx, mask3D, mds,
-                  n_small=None):
+                  m_packer, obs_packer, Nx, Fxy, mask3D, mds,
+                  n_small=None,xdalike=None,dsim=None,dirs=None):
     """Solve for m_MAP
 
     $m_{MAP} = m_0 + H^{-1}F^T R^{-1}(d - F m_0)$
@@ -34,6 +40,11 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
         containing the grid information for the domain m lives in
     n_small : int, optional
         only use the first n_small eigenmodes while applying the inverse Hessian
+    xdalike : xarray DataArray, optional
+        for writing out fields, essentially to reindex the vertical coordinate...
+    dsim, dirs : dict, optional
+        dictionaries to provide to submit prior application via MITgcm rather than
+        here
 
     Returns
     -------
@@ -51,6 +62,7 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
     obs_var_inv = obs_std**-2
 
     # --- Possibly use lower dimensional subspace
+    filternorm = m_packer.unpack(ds['filternorm'])
     Utilde = ds['Utilde'].values if n_small is None else ds['Utilde'].values[:,:n_small]
 
     # --- Compute initial misfit: F m_0 - d, and weighted versions
@@ -63,6 +75,39 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
     # --- Interp back to model grid and apply posterior via EVD
     misfit_model = ds['F'].T.values @ ds['initial_misfit_normvar'].values
     u_misfit_model = Utilde.T @ misfit_model
+
+    # --- Apply prior
+    if dsim is not None:
+        fld_in = m_packer.unpack(misfit_model)
+        fld_in = fld_in*filternorm
+        stepA = submit_priorhalf(fld=fld_in,
+                mymask=m_packer.mask,
+                xdalike=xdalike,
+                Nx=Nx,Fxy=Fxy,
+                write_dir=dirs['write'],
+                namelist_dir=dirs['namelist'],
+                run_dir=dirs['run'],
+                dsim=dsim).load();
+        prior_misfit_model = submit_priorhalf(fld=stepA,
+                mymask=m_packer.mask,
+                xdalike=xdalike,
+                Nx=Nx,Fxy=Fxy,
+                write_dir=dirs['write'],
+                namelist_dir=dirs['namelist'],
+                run_dir=dirs['run'],
+                dsim=dsim).load();
+        prior_misfit_model = prior_misfit_model*filternorm
+
+    else:
+        prior_misfit_model = apply_priorhalf_yz(fld=m_packer.unpack(misfit_model),
+                filternorm=filternorm,Nx=Nx,
+                mask3D=mask3D,mask2D=m_packer.mask,ds=mds)
+        prior_misfit_model = apply_priorhalf_yz(fld=prior_misfit_model,
+                filternorm=filternorm,Nx=Nx,
+                mask3D=mask3D,mask2D=m_packer.mask,ds=mds)
+    prior_misfit_model = m_packer.pack(prior_misfit_model)
+
+                             
     
     for b in ds.beta.values:
         # Currently not storing posterior because it will get big
@@ -76,12 +121,12 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
         udu_misfit_model = Utilde @ (Dinv * u_misfit_model)
         
         # --- Compute the MAP point
-        mmap = m0 + udu_misfit_model 
+        mmap = m0 + (b**2)*prior_misfit_model - udu_misfit_model 
 
         # --- Compute m_map - m0, and weighted version
         dm = m_packer.unpack(mmap - m0)
         dm_normalized = (b**-1) * apply_priorhalf_inv_yz(dm,
-                m_packer.unpack(ds['filternorm']),Nx,mask3D,m_packer.mask,
+                filternorm,Nx,mask3D,m_packer.mask,
                 mds)
         dm_normalized = to_xda(m_packer.pack(dm_normalized),ds)
         with xr.set_options(keep_attrs=True):
@@ -99,9 +144,84 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
             ds['misfits_model_space'].loc[{'beta':b}] = misfits_model_space
     return ds
 
-def apply_priorhalf_inv_yz(fld,filternorm,Nx,mask3D,mask2D,ds):
+def submit_priorhalf(fld,
+                     mymask,xdalike,
+                     Nx,Fxy,
+                     write_dir,namelist_dir,run_dir,
+                     dsim,
+                     smoothOpNb=1,dataprec='float64'):
+    """submit to MITgcm to apply smoothing operator ... much faster"""
+
+    # --- Write and submit
+    if not os.path.isdir(write_dir):
+        os.makedirs(write_dir)
+    fld = fld.reindex_like(xdalike)
+    fname = f'{write_dir}/smooth2DInput{smoothOpNb:03}'
+    wrmds(fname,arr=fld.values,dataprec=dataprec)
+    write_matern(write_dir,smoothOpNb=smoothOpNb,Nx=Nx,mymask=mymask,
+                 xdalike=xdalike,Fxy=Fxy)
+    sim = Simulation(name='single',
+                     namelist_dir=namelist_dir,
+                     run_dir=run_dir,
+                     obs_dir=write_dir,**dsim)
+    sim.link_to_run_dir()
+    sim.write_slurm_script()
+    jid = sim.submit_slurm()
+    check_str = 'squeue -u $USER -ho %A --sort=S'
+
+    # --- Wait until done
+    doneyet = False
+    fnameout = f'{run_dir}/smooth2Dfld{smoothOpNb:03}'
+    while not doneyet:
+        pout = subprocess.run(check_str,shell=True,capture_output=True)
+        jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
+        # jidlist check not really necessary, files seem to "show up"
+        # "after"...
+        doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
+        sleep(1)
+
+    # --- Done! Read the output
+    print('Done with submission',jid)
+    fld_out = read_mds(fnameout,xdalike=xdalike).load();
+    print('output read ... done')
+
+    return fld_out
+
+    
+
+
+def apply_priorhalf_yz(fld,filternorm,Nx,mask3D,mask2D,ds):
     """Apply the square root of the prior covariance operator
         $\Gamma_{prior}^{1/2}f$
+
+    Parameters
+    ----------
+    fld : xarray DataArray
+        To apply the operator to
+    filternorm : xarray DataArray
+        normalization factor for the prior, i.e. 1/sqrt(filter variance)
+        must have same spatial extent as fld
+    Nx, mask3D, mask2D, ds :
+        see rosypig.matern.apply_matern_2d
+
+    Returns
+    -------
+    xda : xarray DataArray
+        
+    """
+    C,K = get_matern(Nx,mask2D)
+    xda = inverse_matern_2d(fld,mask3D=mask3D,mask2D=mask2D,ds=ds,
+                            delta=C['delta'],
+                            Kux=None,
+                            Kvy=K['vy'],Kwz=K['wz'],
+                            n_iter_max = 20000,
+                            tol=1e-15)
+
+    return filternorm*xda
+
+def apply_priorhalf_inv_yz(fld,filternorm,Nx,mask3D,mask2D,ds):
+    """Apply the inverse square root of the prior covariance operator
+        $\Gamma_{prior}^{-1/2}f$
 
     Parameters
     ----------
