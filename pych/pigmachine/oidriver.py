@@ -204,17 +204,14 @@ class OIDriver:
 
 
 # ---------------------------------------------------------------------
-# The actual routines!
+# Range Approximation
 # ---------------------------------------------------------------------
-
-# --- Range Approximation
     def range_approx_one(self):
         jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
-                stage_suff = self.experiment+f'.range1.{nx:02}dx.{fxy:02}fxy'
-                write_dir = _dir(self.dirs["main_run"]+'/'+stage_suff)
+                _, write_dir, run_dir = self._get_dirs('range_approx_one',nx,fxy)
 
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
@@ -223,7 +220,7 @@ class OIDriver:
 
                 sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_oi_ra1',
                                  namelist_dir=self.dirs['namelist'],
-                                 run_dir=self.dirs["main_run"]+f'/run.{stage_suff}',
+                                 run_dir=run_dir,
                                  obs_dir=write_dir,
                                  **self.dsim)
 
@@ -246,29 +243,25 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare reading and writing
-                read_suff = self.experiment+f'.range1.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs["main_run"]+f'/run.{read_suff}'
-
-                write_suff = self.experiment+f'.range2.{nx:02}dx.{fxy:02}fxy'
-                write_dir = _dir(self.dirs["main_run"]+'/'+write_suff)
-                run_dir = self.dirs["main_run"]+'run.'+write_suff
+                read_dir, write_dir, run_dir = self._get_dirs('range_approx_two',nx,fxy)
 
                 # --- Read in samples and filternorm
                 ds = matern.get_matern_dataset(read_dir,
-                                       smoothOpNb=self.smoothOpNb,
-                                       xdalike=self.mymodel,
-                                       sample_num=np.arange(self.n_rand),
-                                       read_filternorm=True)
+                                               smoothOpNb=self.smoothOpNb,
+                                               xdalike=self.mymodel,
+                                               sample_num=np.arange(self.n_rand),
+                                               read_filternorm=True)
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
                 ds['filternorm'].load();
                 evds = rp.RandomDecomposition(n_ctrl=self.ctrl.n_wet,
-                        n_obs=self.obs.n_wet,
-                        n_small=self.n_small,n_over=self.n_over)
+                                              n_obs=self.obs.n_wet,
+                                              n_small=self.n_small,
+                                              n_over=self.n_over)
 
                 # Add Nx and Fxy dimensions
                 evds['filternorm'] = rp.to_xda(self.ctrl.pack(ds['filternorm']),evds,
-                                       expand_dims={'Nx':nx,'Fxy':fxy})
+                                               expand_dims={'Nx':nx,'Fxy':fxy})
                 dslistFxy.append(evds)
 
                 # --- Now apply obserr & filternorm weighted interpolation operator
@@ -316,7 +309,9 @@ class OIDriver:
                                jid_depends=jid_list,mysim=sim)
 
 
-# --- Form the orthonormal basis Q and use it to project to low dim subspace
+# ---------------------------------------------------------------------
+# Form and project onto low dimensional subspace
+# ---------------------------------------------------------------------
     def basis_projection_one(self):
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
@@ -327,11 +322,7 @@ class OIDriver:
             for fxy in self.FxyList:
     
                 # --- Prepare read and write
-                read_suff =  self.experiment+f'.range1.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs['main_run']+'/run.'+read_suff
-                write_suff = self.experiment+f'.project1.{nx:02}dx.{fxy:02}fxy'
-                write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
-                run_dir = self.dirs['main_run']+'/run.'+write_suff
+                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_one',nx,fxy)
 
                 # --- Read samples from last stage, form orthonormal basis
                 ds = matern.get_matern_dataset(read_dir,
@@ -347,7 +338,7 @@ class OIDriver:
                 Y = []
                 for s in ds.sample.values:
                     Y.append(self.ctrl.pack(ds['ginv'].sel(sample=s)))
-                    Y = np.array(Y).T
+                Y = np.array(Y).T
         
                 # do some linalg
                 Q,_ = np.linalg.qr(Y)
@@ -366,7 +357,7 @@ class OIDriver:
                     smooth2DInput.append(q)
 
                 smooth2DInput = np.stack(smooth2DInput,axis=0)
-                wrmds(f'{write_dir}/smooth2DInput{smoothOpNb:03d}',
+                wrmds(f'{write_dir}/smooth2DInput{self.smoothOpNb:03d}',
                       arr=smooth2DInput,dataprec=self.dataprec)
             
                 # set up the run
@@ -405,13 +396,7 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+f'.project1.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs['main_run']+'/'+read_suff
-                write_suff = self.experiment+f'.project2.{nx:02}dx.{fxy:02}fxy'
-                write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
-                run_dir = self.dirs['main_run']+'/run.'+write_suff
-
-
+                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_two',nx,fxy)
             
                 # --- Read output from last stage, apply obserr,filternorm weight op
                 ds = matern.get_matern_dataset(read_dir,
@@ -419,7 +404,7 @@ class OIDriver:
                                                xdalike=self.mymodel,
                                                sample_num=np.arange(self.n_rand),
                                                read_filternorm=False)
-                ds = ds.sortby(self.mymodel.dims)
+                ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
 
                 # Apply operator
@@ -436,7 +421,7 @@ class OIDriver:
                 smooth2DInput = np.stack(smooth2DInput,axis=0)
 
                 # --- Write out and submit next application
-                fname = f'{write_dir}/smooth2DInput{smoothOpNb:03d}'
+                fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03d}'
                 wrmds(fname,arr=smooth2DInput,dataprec=self.dataprec)
 
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
@@ -458,6 +443,9 @@ class OIDriver:
         self.submit_next_stage(next_stage='do_the_evd',
                                jid_depends=jid_list,mysim=sim)
 
+# ---------------------------------------------------------------------
+# Compute and save the low dimensional EVD
+# ---------------------------------------------------------------------
     def do_the_evd(self):
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
@@ -469,13 +457,9 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+f'.project2.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs['main_run']+'/'+read_suff
-                write_suff = self.experiment+f'.evd.{nx:02}dx.{fxy:02}fxy'
-                write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
-                run_dir = self.dirs['main_run']+'/run.'+write_suff
+                read_dir, write_dir, run_dir = self._get_dirs('do_the_evd',nx,fxy)
 
-                ds = matern.get_matern_dataset(run_dir,
+                ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
                                                xdalike=self.mymodel,
                                                sample_num=np.arange(self.n_rand),
@@ -490,8 +474,8 @@ class OIDriver:
                 HmQ = np.array(HmQ).T
 
                 # Apply Q^T
-                Q = evds['Q'].sel(Nx=nx,Fxy=fxy).T.values
-                B = Q @ HmQ
+                Q = evds['Q'].sel(Nx=nx,Fxy=fxy).values
+                B = Q.T @ HmQ
 
                 # Do the EVD
                 D,Uhat = linalg.eigh(B)
@@ -500,7 +484,7 @@ class OIDriver:
                 D = D[::-1]
                 Uhat = Uhat[:,::-1]
 
-                U = Q @ Utilde
+                U = Q @ Uhat
 
                 tmpds = xr.Dataset()
                 tmpds['U'] = rp.to_xda(U,evds,expand_dims={'Nx':nx,'Fxy':fxy})
@@ -510,10 +494,10 @@ class OIDriver:
                 # --- Write out U to apply prior one last time
                 smooth2DInput = []
                 for ii in range(evds.n_rand):
-                    u = obcsw.unpack(U[:,ii]).reindex_like(self.mymodel).values
+                    u = self.ctrl.unpack(U[:,ii]).reindex_like(self.mymodel).values
                     smooth2DInput.append(u)
                 smooth2DInput = np.stack(smooth2DInput,axis=0)
-                fname = f'{write_dir}/smooth2DInput{smoothOpNb:03}'
+                fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03}'
                 wrmds(fname,smooth2DInput,dataprec=self.dataprec)
 
                 matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
@@ -555,9 +539,9 @@ class OIDriver:
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_suff = self.experiment+f'.evd.{nx:02}dx.{fxy:02}fxy'
-                read_dir = self.dirs['main_run']+'/'+read_suff
-                ds = matern.get_matern_dataset(run_dir,
+                read_dir, _, _ = self._get_dirs('save_the_evd',nx,fxy)
+
+                ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
                                                xdalike=self.mymodel,
                                                sample_num=np.arange(self.n_rand),
@@ -635,9 +619,57 @@ class OIDriver:
 # ----
 # Helpers
 # -----
+    def _get_dirs(self,stage,nx,fxy):
+        """return read_dir, write_dir, and run_dir for a specific stage"""
+
+        if stage == 'range_approx_one':
+            read_str = None
+            write_str = 'matern'
+
+        elif stage == 'range_approx_two':
+            read_str = 'matern'
+            write_str = 'range2'
+
+        elif stage == 'basis_projection_one':
+            read_str = 'range2'
+            write_str = 'project1'
+
+        elif stage == 'basis_projection_two':
+            read_str = 'project1'
+            write_str = 'project2'
+
+        elif stage == 'do_the_evd':
+            read_str = 'project2'
+            write_str = 'evd'
+
+        elif stage == 'save_the_evd':
+            read_str = 'evd'
+            write_str = None
+
+        else:
+            raise NameError(f'Unexpected stage for directories: {stage}')
+
+        if read_str is not None:
+            read_suff = f'/run.{self.experiment}' if stage !='range_approx_two' else '/run'
+            read_dir = self.dirs["main_run"]+read_suff+\
+                f'.{read_str}.{nx:02}dx.{fxy:02}fxy'
+        else:
+            read_dir = None
+
+        if write_str is not None:
+            write_suff = self.experiment +'.' if stage != 'range_approx_one' else ''
+            write_suff += f'{write_str}.{nx:02}dx.{fxy:02}fxy'
+            write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
+            run_dir   = self.dirs['main_run']+'/run.'+write_suff
+        else:
+            write_dir=None
+            run_dir=None
+
+        return read_dir, write_dir, run_dir
 
 def _dir(dirname):
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
     return dirname
+
 
