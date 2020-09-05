@@ -71,18 +71,16 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
     # --- Map back to model grid and apply posterior via EVD
     misfit_model = ds['F'].T.values @ ds['initial_misfit_normvar'].values
 
-
     for nx in ds.Nx.values:
         for fxy in ds.Fxy.values:
 
             # --- Possibly use lower dimensional subspace and get arrays
-            Utilde = ds['Utilde'].sel(Nx=nx,Fxy=fxy).values if n_small is None else ds['Utilde'].sel(Nx=nx,Fxy=fxy).values[:,:n_small]
+            U = ds['U'].sel(Nx=nx,Fxy=fxy).values if n_small is None else ds['U'].sel(Nx=nx,Fxy=fxy).values[:,:n_small]
             filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,Fxy=fxy))
 
 
             # --- Apply prior
             prior_misfit_model = m_packer.unpack(misfit_model)
-            prior_misfit_model = filternorm*prior_misfit_model
             prior_misfit_model = submit_priorhalf( \
                                     fld=prior_misfit_model,
                                     mymask=m_packer.mask,
@@ -91,34 +89,35 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
                                     write_dir=dirs['write'],
                                     namelist_dir=dirs['namelist'],
                                     run_dir=dirs['run'],
-                                    dsim=dsim).load();
-            prior_misfit_model = submit_priorhalf( \
-                                    fld=prior_misfit_model,
-                                    mymask=m_packer.mask,
-                                    xdalike=xdalike,
-                                    Nx=nx,Fxy=fxy,
-                                    write_dir=dirs['write'],
-                                    namelist_dir=dirs['namelist'],
-                                    run_dir=dirs['run'],
-                                    dsim=dsim).load();
+                                    dsim=dsim)
             prior_misfit_model = filternorm*prior_misfit_model
             prior_misfit_model = m_packer.pack(prior_misfit_model)
 
-            # --- Start applying posterior
-            u_misfit_model = Utilde.T @ misfit_model
-                             
-    
             for b in ds.beta.values:
         
                 # --- Possibly account for lower dimensional subspace
                 Dinv = ds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values
                 Dinv = Dinv if n_small is None else Dinv[:n_small]
+
+                # --- Apply (I-UDU^T)
+                udu_misfit_model = U.T @ (b*prior_misfit_model)
         
                 # --- Finish applying posterior
-                udu_misfit_model = Utilde @ (Dinv * u_misfit_model)
+                udu_misfit_model = U @ (Dinv * udu_misfit_model)
         
                 # --- Compute the MAP point
-                mmap = m0 + (b**2)*prior_misfit_model - udu_misfit_model 
+                udu_misfit_model = b*prior_misfit_model - udu_misfit_model
+                udu_misfit_model = submit_priorhalf( \
+                                    fld=m_packer.unpack(udu_misfit_model),
+                                    mymask=m_packer.mask,
+                                    xdalike=xdalike,
+                                    Nx=nx,Fxy=fxy,
+                                    write_dir=dirs['write'],
+                                    namelist_dir=dirs['namelist'],
+                                    run_dir=dirs['run'],
+                                    dsim=dsim)
+                udu_misfit_model = b*filternorm*udu_misfit_model
+                mmap = m0 + m_packer.pack(udu_misfit_model)
 
                 # --- Compute m_map - m0, and weighted version
                 dm = m_packer.unpack(mmap - m0)
@@ -187,7 +186,7 @@ def submit_priorhalf(fld,
         sleep(1)
 
     # --- Done! Read the output
-    fld_out = read_mds(fnameout,xdalike=xdalike).load();
+    fld_out = read_mds(fnameout,xdalike=xdalike).reindex_like(mymask).load();
 
     return fld_out
 
