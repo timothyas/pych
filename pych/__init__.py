@@ -16,6 +16,7 @@ from .interp_section import get_section_tracers
 
 
 from .read_stdout import (
+        read_jacobi_iters,
         read_stdout_timing, read_grdchk_from_stdout)
 
 from .utils import get_cmap_rgb

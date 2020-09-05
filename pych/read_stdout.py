@@ -7,6 +7,43 @@ import re
 import pandas as pd
 import numpy as np
 
+def read_jacobi_iters(filepath):
+    """
+    Parse jacobi iters from STDOUT file
+
+    Parameters
+    ----------
+    filepath : str
+        path to STDOUT.* file
+
+    Returns
+    -------
+    iters : numpy array
+        with number of iterations to solve the linear system that is
+        smoothNbRand long (usually 1000)
+    """
+
+    re_dict = {
+        'iters': re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+SMOOTH_JACOBI_YZ:\sfinal\siter\:\s+(\d+)\s+final\serror:\s+\d+\.\d+E?.?\d+')}
+
+    # Parse line by line, when get to the 'timing' part of the STDOUT file
+    # first grab the "section"= the part of the code timing is counted toward
+    # then the lines after that give the time, grab the Wall Clock Time
+    line_dict = {'iters':[]}
+    with open(filepath,'r') as f:
+        for line in f:
+            key, val = _parse_line(line,re_dict)
+            if key is not None:
+                line_dict[key].append(val.group(1))
+
+    # Now make a dictionary by 'section'
+    # Doing it this way because section and time are not read in as pairs
+    iters = [np.double(x) for x in line_dict['iters']]
+    #for key, val in line_dict['iters'].items():
+    #    iters.append(np.double(val))
+
+    return np.array(iters)
+
 def read_stdout_timing(filepath):
     """
     Parse timing from STDOUT file
