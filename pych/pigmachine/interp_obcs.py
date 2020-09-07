@@ -12,7 +12,7 @@ from time import sleep
 from MITgcmutils import wrmds,rdmds
 
 from rosypig import to_xda, apply_matern_2d, inverse_matern_2d,Simulation
-from .matern import get_matern,write_matern,write_matern
+from .matern import get_matern,write_matern,write_matern,get_matern_dataset
 from .io import read_mds
 
 def solve_for_map_2(ds, m0, obs_mean, obs_std,
@@ -95,42 +95,56 @@ def solve_for_map_2(ds, m0, obs_mean, obs_std,
                                         ds=mds)
             m0_normalized = m_packer.pack(filterstd*m0_normalized)
 
+            # --- Add prior weighted initial guess and normalized obs in model space
+            smooth2DInput = []
             for b in ds.beta.values:
-        
+                obs_and_m0 = obs2model + (b**-2)*m0_normalized
+                obs_and_m0 = m_packer.unpack(obs_and_m0).reindex_like(xdalike).values
+                smooth2DInput.append(obs_and_m0)
+
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+
+            # --- Apply prior 1/2
+            smooth2DOutput = submit_priorhalf( \
+                        fld=smooth2DInput,
+                        mymask=m_packer.mask,
+                        xdalike=xdalike,
+                        Nx=nx,Fxy=fxy,
+                        write_dir=dirs['write'],
+                        namelist_dir=dirs['namelist'],
+                        run_dir=dirs['run'],
+                        dsim=dsim)
+
+            # --- Apply (I-UDU^T)
+            smooth2DInput = []
+            for s,b in enumerate(ds.beta.values):
+
                 # --- Possibly account for lower dimensional subspace
                 Dinv = ds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values
                 Dinv = Dinv if n_small is None else Dinv[:n_small]
 
-                # --- Add terms together
-                obs_and_m0 = obs2model + (b**-2)*m0_normalized
 
-                # --- Apply prior 1/2
-                obs_and_m0 = submit_priorhalf( \
-                                    fld=m_packer.unpack(obs_and_m0),
-                                    mymask=m_packer.mask,
-                                    xdalike=xdalike,
-                                    Nx=nx,Fxy=fxy,
-                                    write_dir=dirs['write'],
-                                    namelist_dir=dirs['namelist'],
-                                    run_dir=dirs['run'],
-                                    dsim=dsim)
-                oam = m_packer.pack(filternorm*obs_and_m0)
+                oam = m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
 
-                # --- Apply (I-UDU^T)
                 udu = U @ (Dinv* (U.T @ oam))
                 iudu = oam - udu
+                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
+                smooth2DInput.append(iudu)
 
-                # --- Apply prior 1/2 again
-                mmap = submit_priorhalf( \
-                                    fld=m_packer.unpack(iudu),
-                                    mymask=m_packer.mask,
-                                    xdalike=xdalike,
-                                    Nx=nx,Fxy=fxy,
-                                    write_dir=dirs['write'],
-                                    namelist_dir=dirs['namelist'],
-                                    run_dir=dirs['run'],
-                                    dsim=dsim)
-                mmap = (b**2)*m_packer.pack(filternorm*mmap)
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+
+            # --- Apply prior 1/2 again
+            smooth2DOutput = submit_priorhalf( \
+                        fld=smooth2DInput,
+                        mymask=m_packer.mask,
+                        xdalike=xdalike,
+                        Nx=nx,Fxy=fxy,
+                        write_dir=dirs['write'],
+                        namelist_dir=dirs['namelist'],
+                        run_dir=dirs['run'],
+                        dsim=dsim)
+            for s,b in enumerate(ds.beta.values):
+                mmap = (b**2)*m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
         
                 # --- Compute m_map - m0, and weighted version
                 dm = m_packer.unpack(mmap - m0)
@@ -226,7 +240,6 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
             filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,Fxy=fxy))
             filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
 
-
             # --- Apply prior
             prior_misfit_model = m_packer.unpack(misfit_model)
             prior_misfit_model = submit_priorhalf( \
@@ -296,27 +309,31 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
                             np.linalg.norm(obs_std_inv * misfits,ord=2)
                     ds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             misfits_model_space
+        print(f' --- Done with Nx = {nx} ---')
     return ds
 
 def submit_priorhalf(fld,
-                     mymask,xdalike,
+                     mymask,
+                     xdalike,
                      Nx,Fxy,
                      write_dir,namelist_dir,run_dir,
                      dsim,
                      smoothOpNb=1,dataprec='float64'):
-    """submit to MITgcm to apply smoothing operator ... much faster"""
+    """submit to MITgcm to apply smoothing operator ... much faster
+    """
+
+    nrecs = fld.shape[0] if fld.shape!=mymask.shape else 1
 
     # --- Write and submit
     if not os.path.isdir(write_dir):
         os.makedirs(write_dir)
-    fld = fld.reindex_like(xdalike)
     fname = f'{write_dir}/smooth2DInput{smoothOpNb:03}'
-    wrmds(fname,arr=fld.values,dataprec=dataprec)
+    wrmds(fname,arr=fld,dataprec=dataprec,nrecords=nrecs)
     write_matern(write_dir,smoothOpNb=smoothOpNb,Nx=Nx,mymask=mymask,
                  xdalike=xdalike,Fxy=Fxy)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        sim = Simulation(name='single',
+        sim = Simulation(name='priorhalf',
                          namelist_dir=namelist_dir,
                          run_dir=run_dir,
                          obs_dir=write_dir,**dsim)
@@ -324,16 +341,26 @@ def submit_priorhalf(fld,
     sim.link_to_run_dir()
     sim.write_slurm_script()
     jid = sim.submit_slurm()
+    print(f' --- Submitted job {jid} --- ')
 
     # --- Wait until done
     doneyet = False
+    check_str = 'squeue -u $USER -ho %A --sort=S'
     fnameout = f'{run_dir}/smooth2Dfld{smoothOpNb:03}'
     while not doneyet:
-        doneyet = os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
+        pout = subprocess.run(check_str,shell=True,capture_output=True)
+        jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
+        doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
         sleep(1)
 
     # --- Done! Read the output
-    fld_out = read_mds(fnameout,xdalike=xdalike).reindex_like(mymask).load();
+    dsout = get_matern_dataset(run_dir,smoothOpNb=smoothOpNb,
+                               xdalike=xdalike,
+                               sample_num=np.arange(nrecs),
+                               read_filternorm=False)
+    fld_out = dsout['ginv'].reindex_like(mymask).load();
+    print(f' --- Output done, deleting {sim.run_dir} --- ')
+    rmtree(sim.run_dir)
 
     return fld_out
 
