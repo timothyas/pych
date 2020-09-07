@@ -147,7 +147,7 @@ def solve_for_map_2(ds, m0, obs_mean, obs_std,
                 mmap = (b**2)*m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
         
                 # --- Compute m_map - m0, and weighted version
-                dm = m_packer.unpack(mmap - m0)
+                dm = filterstd*m_packer.unpack(mmap - m0)
                 dm_normalized = (b**-1) * apply_priorhalf_inv_yz( \
                                             fld=dm,
                                             Nx=nx,Fxy=fxy,
@@ -175,6 +175,8 @@ def solve_for_map_2(ds, m0, obs_mean, obs_std,
                             np.linalg.norm(obs_std_inv * misfits,ord=2)
                     ds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             misfits_model_space
+            print(f' --- Done with Fxy = {fxy} ---')
+        print(f' --- Done with Nx = {nx} ---')
     return ds
 def solve_for_map(ds, m0, obs_mean, obs_std,
                   m_packer, obs_packer, mask3D, mds,
@@ -242,8 +244,9 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
 
             # --- Apply prior
             prior_misfit_model = m_packer.unpack(misfit_model)
-            prior_misfit_model = submit_priorhalf( \
-                                    fld=prior_misfit_model,
+            smooth2DInput = prior_misfit_model.broadcast_like(ds.beta*prior_misfit_model).reindex_like(xdalike).values
+            smooth2DOutput = submit_priorhalf( \
+                                    fld=smooth2DInput,
                                     mymask=m_packer.mask,
                                     xdalike=xdalike,
                                     Nx=nx,Fxy=fxy,
@@ -251,9 +254,10 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
                                     namelist_dir=dirs['namelist'],
                                     run_dir=dirs['run'],
                                     dsim=dsim)
-            prior_misfit_model = filternorm*prior_misfit_model
+            prior_misfit_model = filternorm*smooth2DOutput.isel(sample=0)
             prior_misfit_model = m_packer.pack(prior_misfit_model)
 
+            smooth2DInput = []
             for b in ds.beta.values:
         
                 # --- Possibly account for lower dimensional subspace
@@ -261,24 +265,27 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
                 Dinv = Dinv if n_small is None else Dinv[:n_small]
 
                 # --- Apply (I-UDU^T)
-                udu_misfit_model = U.T @ (b*prior_misfit_model)
-        
-                # --- Finish applying posterior
-                udu_misfit_model = U @ (Dinv * udu_misfit_model)
-        
-                # --- Compute the MAP point
-                udu_misfit_model = b*prior_misfit_model - udu_misfit_model
-                udu_misfit_model = submit_priorhalf( \
-                                    fld=m_packer.unpack(udu_misfit_model),
-                                    mymask=m_packer.mask,
-                                    xdalike=xdalike,
-                                    Nx=nx,Fxy=fxy,
-                                    write_dir=dirs['write'],
-                                    namelist_dir=dirs['namelist'],
-                                    run_dir=dirs['run'],
-                                    dsim=dsim)
-                udu_misfit_model = b*filternorm*udu_misfit_model
-                mmap = m0 + m_packer.pack(udu_misfit_model)
+                udu = U @ ( Dinv * ( U.T @ (b*prior_misfit_model)))
+                iudu = b*prior_misfit_model - udu
+
+                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
+                smooth2DInput.append(iudu)
+
+            # --- Apply prior half
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+            smooth2DOutput = submit_priorhalf( \
+                                fld=smooth2DInput,
+                                mymask=m_packer.mask,
+                                xdalike=xdalike,
+                                Nx=nx,Fxy=fxy,
+                                write_dir=dirs['write'],
+                                namelist_dir=dirs['namelist'],
+                                run_dir=dirs['run'],
+                                dsim=dsim)
+
+            for s,b in enumerate(ds.beta.values):
+
+                mmap = m0 + m_packer.pack(b*filternorm*smooth2DOutput.sel(sample=s))
 
                 # --- Compute m_map - m0, and weighted version
                 dm = filterstd*m_packer.unpack(mmap - m0)
@@ -309,6 +316,8 @@ def solve_for_map(ds, m0, obs_mean, obs_std,
                             np.linalg.norm(obs_std_inv * misfits,ord=2)
                     ds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             misfits_model_space
+
+            print(f' --- Done with Fxy = {fxy} ---')
         print(f' --- Done with Nx = {nx} ---')
     return ds
 
@@ -341,7 +350,6 @@ def submit_priorhalf(fld,
     sim.link_to_run_dir()
     sim.write_slurm_script()
     jid = sim.submit_slurm()
-    print(f' --- Submitted job {jid} --- ')
 
     # --- Wait until done
     doneyet = False
@@ -359,7 +367,6 @@ def submit_priorhalf(fld,
                                sample_num=np.arange(nrecs),
                                read_filternorm=False)
     fld_out = dsout['ginv'].reindex_like(mymask).load();
-    print(f' --- Output done, deleting {sim.run_dir} --- ')
     rmtree(sim.run_dir)
 
     return fld_out
