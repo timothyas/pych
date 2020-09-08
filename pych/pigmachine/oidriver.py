@@ -210,7 +210,8 @@ class OIDriver:
     def _send_to_stage(self,stage):
         possible_stages = ['range_approx_one','range_approx_two', 
                            'basis_projection_one','basis_projection_two', 
-                           'do_the_evd','solve_for_map','save_the_evd']
+                           'do_the_evd','prior_to_misfit',
+                           'solve_for_map','save_the_map']
 
         if stage in possible_stages:
             self.pickup()
@@ -290,30 +291,17 @@ class OIDriver:
                                   obs_std=self.obs_std,
                                   input_packer=self.ctrl,output_packer=self.obs)
                     # Prepare for I/O
-                    g_out = g_out.reindex_like(self.mymodel)
-                    smooth2DInput.append(g_out.values)
+                    smooth2DInput.append(g_out)
 
-                # --- Write inputs and submit job
-                smooth2DInput = np.stack(smooth2DInput,axis=0)
-                fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03d}'
-                wrmds(fname,arr=smooth2DInput,dataprec=self.dataprec,
-                      nrecords=len(ds.sample))
 
-                # Write matern operator and submit job
-                matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                        Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
-                        Fxy=fxy)
-
-                sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_ra2_oi',
-                                    namelist_dir=self.dirs['namelist_apply'],
-                                    run_dir=run_dir,
-                                    obs_dir=write_dir,
-                                    **self.dsim)
-                # launch job
-                sim.link_to_run_dir()
-
-                sim.write_slurm_script()
-                jid =sim.submit_slurm(**self.slurm)
+                # --- Write matern operator and submit job
+                smooth2DInput = xr.concat(smooth2DInput,dim='sample')
+                jid,sim =self.submit_matern(fld=smooth2DInput,
+                                   Nx=nx,Fxy=fxy,
+                                   namelist_dir=self.dirs['namelist_apply'],
+                                   write_dir=write_dir,
+                                   run_dir=run_dir,
+                                   run_suff='ra2')
                 jid_list.append(jid)
 
             # --- Keep appending the dataset with filternorm for safe keeping
@@ -372,28 +360,15 @@ class OIDriver:
                 smooth2DInput = []
                 for i in range(evds.n_rand):
                     q = self.ctrl.unpack(Q[:,i],fill_value=0.)
-                    q = q.reindex_like(self.mymodel).values
                     smooth2DInput.append(q)
 
-                smooth2DInput = np.stack(smooth2DInput,axis=0)
-                wrmds(f'{write_dir}/smooth2DInput{self.smoothOpNb:03d}',
-                      arr=smooth2DInput,dataprec=self.dataprec)
-            
-                # set up the run
-                matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
-                                    Fxy=fxy)
-
-                sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_proj1_oi',
-                                    namelist_dir=self.dirs['namelist_apply'],
-                                    run_dir=run_dir,
-                                    obs_dir=write_dir,
-                                    **self.dsim)
-        
-                # launch job
-                sim.link_to_run_dir()
-                sim.write_slurm_script()
-                jid = sim.submit_slurm(**self.slurm)
+                smooth2DInput = xr.concat(smooth2DInput,dim='sample')
+                jid,sim =self.submit_matern(fld=smooth2DInput,
+                                   Nx=nx,Fxy=fxy,
+                                   namelist_dir=self.dirs['namelist_apply'],
+                                   write_dir=write_dir,
+                                   run_dir=run_dir,
+                                   run_suff='proj1')
                 jid_list.append(jid)
         
             # get those datasets
@@ -437,27 +412,16 @@ class OIDriver:
                                           input_packer=self.ctrl,
                                           output_packer=self.obs)
 
-                    smooth2DInput.append(g_out.reindex_like(self.mymodel).values)
-                smooth2DInput = np.stack(smooth2DInput,axis=0)
+                    smooth2DInput.append(g_out)
 
                 # --- Write out and submit next application
-                fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03d}'
-                wrmds(fname,arr=smooth2DInput,dataprec=self.dataprec)
-
-                matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
-                                    Fxy=fxy)
-
-                sim = rp.Simulation(name=f'{nx:02d}dx_{fxy:02}fxy_proj2_oi',
-                                    namelist_dir=self.dirs['namelist_apply'],
-                                    run_dir=run_dir,
-                                    obs_dir=write_dir,
-                                    **self.dsim)
-
-                # launch job
-                sim.link_to_run_dir()
-                sim.write_slurm_script()
-                jid = sim.submit_slurm(**self.slurm)
+                smooth2DInput = xr.concat(smooth2DInput,dim='sample')
+                jid,sim =self.submit_matern(fld=smooth2DInput,
+                                   Nx=nx,Fxy=fxy,
+                                   namelist_dir=self.dirs['namelist_apply'],
+                                   write_dir=write_dir,
+                                   run_dir=run_dir,
+                                   run_suff='proj2')
                 jid_list.append(jid)
 
         # --- Pass on to next stage
@@ -512,31 +476,6 @@ class OIDriver:
                 tmpds['D'] = rp.to_xda(D,evds,expand_dims={'Nx':nx,'Fxy':fxy})
                 dslistFxy.append(tmpds)
 
-                # --- Write out U to apply prior one last time
-                smooth2DInput = []
-                for ii in range(evds.n_rand):
-                    u = self.ctrl.unpack(U[:,ii]).reindex_like(self.mymodel).values
-                    smooth2DInput.append(u)
-                smooth2DInput = np.stack(smooth2DInput,axis=0)
-                fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03}'
-                wrmds(fname,smooth2DInput,dataprec=self.dataprec)
-
-                matern.write_matern(write_dir,smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,xdalike=self.mymodel,
-                                    Fxy=fxy)
-
-                sim = rp.Simulation(name=f'{nx:02d}dx_{fxy:02}fxy_evd_oi',
-                                    namelist_dir=self.dirs['namelist_apply'],
-                                    run_dir=run_dir,
-                                    obs_dir=write_dir,
-                                    **self.dsim)
-
-                # launch job
-                sim.link_to_run_dir()
-                sim.write_slurm_script()
-                jid = sim.submit_slurm(**self.slurm)
-                jid_list.append(jid)
-
             # --- Continue saving eigenvalues
             dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
 
@@ -544,19 +483,22 @@ class OIDriver:
         atts = evds.attrs.copy()
         evds = xr.merge([newds,evds])
         evds.attrs = atts
-        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
 
         # --- Pass on to next stage
-        self.submit_next_stage(next_stage='solve_for_map',
+        sim = rp.Simulation(name='evd',
+                namelist_dir=self.dirs['namelist_apply'],
+                run_dir=run_dir,
+                obs_dir=write_dir,
+                **self.dsim)
+        self.submit_next_stage(next_stage='prior_to_misfit',
                                jid_depends=jid_list,mysim=sim)
 
-    def solve_for_map(self,m0=None,n_small=None):
+    def prior_to_misfit(self,m0=None):
         """Optional to re-run this from the last stage with another initial guess"""
 
-        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
-
-        evds = _add_map_fields(evds,self.beta)
 
         if m0 is not None:
             self.m0 = m0
@@ -574,6 +516,52 @@ class OIDriver:
         # --- Map back to model grid and apply posterior via EVD
         misfit2model = evds['F'].T.values @ (obs_var_inv * initial_misfit)
 
+        jid_list = []
+        for nx in self.NxList:
+            for fxy in self.FxyList:
+
+                # --- Prepare directories
+                read_dir, write_dir, run_dir = self._get_dirs('prior_to_misfit',nx,fxy)
+
+                # --- Possibly use lower dimensional subspace and get arrays
+                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
+
+                # --- Apply prior
+                prior_misfit2model = self.ctrl.unpack(misfit2model)
+                smooth2DInput = prior_misfit2model.broadcast_like(\
+                        xr.DataArray(self.beta)*prior_misfit2model)
+                jid,sim = self.submit_matern( \
+                                    fld=smooth2DInput,
+                                    Nx=nx,Fxy=fxy,
+                                    namelist_dir=self.dirs['namelist_map'],
+                                    write_dir=write_dir,
+                                    run_dir=run_dir,
+                                    run_suff='p2m')
+                jid_list.append(jid)
+
+        self.submit_next_stage(next_stage='solve_for_map',
+                               jid_depends=jid_list,mysim=sim)
+
+
+    def solve_for_map(self,m0=None,n_small=None):
+        """Optional to re-run this from the last stage with another initial guess"""
+
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
+        evds['filternorm'].load();
+
+        evds = _add_map_fields(evds,self.beta)
+
+        if m0 is not None:
+            self.m0 = m0
+
+        # --- Pack to deal with arrays
+        [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip( \
+                                            [self.m0,self.obs_mean,self.obs_std],
+                                            [self.ctrl,self.obs,self.obs])]
+        obs_std_inv = obs_std**-1
+        obs_var_inv = obs_std**-2
+
+        jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
@@ -585,22 +573,17 @@ class OIDriver:
                 U = U[:,:self.n_small] if n_small is None else U[:,:n_small]
 
                 filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
-                filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
 
-                C,K = matern.get_matern(Nx=nx,mymask=self.ctrl.mask,Fxy=fxy)
 
-                # --- Apply prior
-                prior_misfit2model = self.ctrl.unpack(misfit2model)
-                smooth2DInput = prior_misfit2model.broadcast_like(\
-                        evds.beta*prior_misfit2model)
-                smooth2DOutput = self.submit_matern( \
-                                    fld=smooth2DInput,
-                                    Nx=nx,Fxy=fxy,
-                                    namelist_dir=self.dirs['namelist_map'],
-                                    write_dir=write_dir,
-                                    run_dir=run_dir,
-                                    run_suff='map1')
-                prior_misfit2model = filternorm*smooth2DOutput.isel(sample=0)
+                ds = matern.get_matern_dataset(read_dir,
+                                               smoothOpNb=self.smoothOpNb,
+                                               xdalike=self.mymodel,
+                                               sample_num=np.arange(len(self.beta)),
+                                               read_filternorm=False)
+                ds = ds.sortby(list(self.mymodel.dims))
+                ds['ginv'].load();
+
+                prior_misfit2model = filternorm*ds['ginv'].isel(sample=0)
                 prior_misfit2model = self.ctrl.pack(prior_misfit2model)
 
                 smooth2DInput = []
@@ -619,20 +602,55 @@ class OIDriver:
 
                 # --- Apply prior half
                 smooth2DInput = xr.concat(smooth2DInput,dim='beta')
-                smooth2DOutput = self.submit_matern( \
-                                    fld=smooth2DInput,
-                                    Nx=nx,Fxy=fxy,
-                                    namelist_dir=self.dirs['namelist_map'],
-                                    write_dir=write_dir,
-                                    run_dir=run_dir,
-                                    run_suff='map2')
+                jid,sim = self.submit_matern(fld=smooth2DInput,
+                                         Nx=nx,Fxy=fxy,
+                                         namelist_dir=self.dirs['namelist_map'],
+                                         write_dir=write_dir,
+                                         run_dir=run_dir,
+                                         run_suff='map')
+                jid_list.append(jid)
 
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_map.nc')
+        self.submit_next_stage(next_stage='save_the_map',
+                               jid_depends=jid_list,mysim=sim)
+
+    def save_the_map(self):
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_map.nc')
+        evds['filternorm'].load();
+
+        # --- Pack to deal with arrays
+        [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip( \
+                                            [self.m0,self.obs_mean,self.obs_std],
+                                            [self.ctrl,self.obs,self.obs])]
+        obs_std_inv = obs_std**-1
+        obs_var_inv = obs_std**-2
+
+        for nx in self.NxList:
+            for fxy in self.FxyList:
+
+                # --- Prepare directories
+                read_dir, write_dir, run_dir = self._get_dirs('save_the_map',nx,fxy)
+
+                # --- Get arrays
+                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
+                filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
+
+                C,K = matern.get_matern(Nx=nx,mymask=self.ctrl.mask,Fxy=fxy)
+
+                ds = matern.get_matern_dataset(read_dir,
+                                               smoothOpNb=self.smoothOpNb,
+                                               xdalike=self.mymodel,
+                                               sample_num=np.arange(len(self.beta)),
+                                               read_filternorm=False)
+                ds = ds.sortby(list(self.mymodel.dims))
+                ds['ginv'].load();
                 for s,b in enumerate(self.beta):
 
-                    mmap = m0 + self.ctrl.pack(b*filternorm*smooth2DOutput.sel(sample=s))
+                    m_update = b*filternorm*ds['ginv'].sel(sample=s)
+                    mmap = m0 + self.ctrl.pack(m_update)
 
                     # --- Compute m_map - m0, and weighted version
-                    dm = filterstd*self.ctrl.unpack(mmap - m0)
+                    dm = filterstd*m_update
                     dm_normalized = (b**-1) * rp.apply_matern_2d( \
                                                 fld_in=dm,
                                                 mask3D=self.cds.maskC,
@@ -665,11 +683,11 @@ class OIDriver:
                         evds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             misfits_model_space
 
-            print(f' --- Done with Fxy = {fxy} ---')
-        print(f' --- Done with Nx = {nx} ---')
         evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_map.nc')
 
-
+# ---------------------------------------------------------------------
+# Stuff for organizing each stage of the run
+# ---------------------------------------------------------------------
     def submit_matern(self,
                       fld,
                       Nx,Fxy,
@@ -706,65 +724,9 @@ class OIDriver:
         sim.write_slurm_script()
         jid = sim.submit_slurm(**self.slurm)
 
-        # --- Wait until done
-        doneyet = False
-        check_str = 'squeue -u $USER -ho %A --sort=S'
-        fnameout = f'{run_dir}/smooth2Dfld{self.smoothOpNb:03}'
-        while not doneyet:
-            pout = subprocess.run(check_str,shell=True,capture_output=True)
-            jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
-            doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
-            sleep(1)
-
-        # --- Done! Read the output
-        dsout = matern.get_matern_dataset(run_dir,smoothOpNb=self.smoothOpNb,
-                                   xdalike=self.mymodel,
-                                   sample_num=np.arange(nrecs),
-                                   read_filternorm=False)
-        fld_out = dsout['ginv'].reindex_like(self.ctrl.mask).load();
-        rmtree(sim.run_dir)
-
-        return fld_out
+        return jid,sim
         
 
-    def save_the_evd(self):
-
-        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
-        evds['filternorm'].load();
-
-        utildeNx = []
-        for nx in self.NxList:
-            utildeFxy = []
-            for fxy in self.FxyList:
-
-                # --- Prepare directories
-                read_dir, _, _ = self._get_dirs('save_the_evd',nx,fxy)
-
-                ds = matern.get_matern_dataset(read_dir,
-                                               smoothOpNb=self.smoothOpNb,
-                                               xdalike=self.mymodel,
-                                               sample_num=np.arange(self.n_rand),
-                                               read_filternorm=False)
-                ds = ds.sortby(list(self.mymodel.dims))
-                ds['ginv'].load();
-
-                Utilde = []
-                filternorm = evds['filternorm'].sel(Nx=nx,Fxy=fxy).values
-                for s in ds.sample.values:
-                    ut = self.ctrl.pack(ds['ginv'].sel(sample=s))*filternorm
-                    Utilde.append(ut)
-                Utilde = np.array(Utilde).T
-                utildeFxy.append(rp.to_xda(Utilde,evds,
-                                           expand_dims={'Nx':nx,'Fxy':fxy}))
-
-            utildeNx.append(xr.concat(utildeFxy,dim='Fxy'))
-
-        evds['Utilde'] = xr.concat(utildeNx,dim='Nx')
-        evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_evd.nc')
-
-# ---------------------------------------------------------------------
-# Stuff for organizing each stage of the run
-# ---------------------------------------------------------------------
     def submit_next_stage(self,next_stage, mysim, jid_depends=None):
         """Write a bash script and submit, which will execute next stage
         of experiment
@@ -841,12 +803,16 @@ class OIDriver:
             read_str = 'project2'
             write_str = 'evd'
 
+        elif stage == 'prior_to_misfit':
+            read_str = 'project2'
+            write_str = 'p2m'
+
         elif stage == 'solve_for_map':
-            read_str = 'evd'
+            read_str = 'p2m'
             write_str = 'map'
 
-        elif stage == 'save_the_evd':
-            read_str = 'evd'
+        elif stage == 'save_the_map':
+            read_str = 'map'
             write_str = None
 
         else:
