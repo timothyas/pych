@@ -488,8 +488,6 @@ class OIDriver:
         # --- Pass on to next stage
         sim = rp.Simulation(name='evd',
                 namelist_dir=self.dirs['namelist_apply'],
-                run_dir=run_dir,
-                obs_dir=write_dir,
                 **self.dsim)
         self.submit_next_stage(next_stage='prior_to_misfit',
                                jid_depends=jid_list,mysim=sim)
@@ -770,7 +768,7 @@ class OIDriver:
                 '"from pych.pigmachine import OIDriver;'+\
                 f'oid = OIDriver(\'{self.experiment}\',\'{stage}\')"\n'
 
-        fname = self.dirs['main_run']+'/submit_oi.sh'
+        fname = self.dirs['main_run']+f'/submit_{self.experiment}.sh'
         with open(fname,'w') as f:
             f.write(file_contents)
         return fname
