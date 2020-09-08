@@ -15,6 +15,8 @@ import sys
 import json
 import subprocess
 import numpy as np
+from shutil import rmtree
+from time import sleep
 from scipy import linalg
 import xarray as xr
 from xmitgcm import open_mdsdataset
@@ -53,6 +55,8 @@ class OIDriver:
     dataprec = 'float64'
     NxList = [10,15,20,30]
     FxyList = [0.5,1,2,5]
+    n_beta = 9
+    beta = 10**np.linspace(-5,-3,n_beta)
     smoothOpNb = 1
     conda_env = 'py38_tim'
     def __init__(self, experiment,stage=None):
@@ -70,13 +74,15 @@ class OIDriver:
             'basis_projection_one'
             'basis_projection_two'
             'do_the_evd'
+            'solve_for_map'
             'save_the_evd'
         """
         self.experiment = experiment
         self._send_to_stage(stage)
 
 
-    def start(self,dirs,dsim,mymodel,obs_mask,obs_std,
+    def start(self,dirs,dsim,
+              mymodel,m0,ctrl_ds,obs_mask,obs_mean,obs_std,
               startat='range_approx_one',**kwargs):
         """Start the experiment by writing everything we need to file,
         to be read in later by "pickup"
@@ -91,6 +97,7 @@ class OIDriver:
                 i.e. where smoothing package pushes through random samples
             'namelist_apply' : with namelist files for all other stages, where
                 the smoothing operator is applied to an input vector
+            'namelist_map' : same, but now for applying matern to len(beta) fields
             'netcdf' : where to save netcdf files when finished
                 Note: a separate tmp/ directory is created inside for
                 intermittent saves 
@@ -104,12 +111,17 @@ class OIDriver:
             with vertical going from top to bottom
             Note: dimensions are assumed to be ordered like
             (vertical, meridional, zonal)
+        m0 : xarray DataArray
+            with the initial guess
+        ctrl_ds : xarray DataArray
+            dataset with the FULL coordinate dataset, for evaluating the laplacian
         obs_mask : xarray DataArray
             mask field denoting where observations are taken, on an "observation grid"
             Note: dimensions are assumed to be ordered like
             (vertical, meridional, zonal)
-        obs_std : xarray DataArray
-            containing observational uncertainties (of course, at the mask points!)
+        obs_mean, obs_std : xarray DataArray
+            containing observation mean and uncertainties
+            (of course, at the mask points!)
         startat : str, optional
             stage to start at
         kwargs
@@ -134,8 +146,10 @@ class OIDriver:
             write_json(kwargs,'_kwargs.json')
 
         # --- Write ctrl and obs datasets to netcdf
-        mymodel.to_netcdf(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
-        myobs = xr.Dataset({'obs_mask':obs_mask,'obs_std':obs_std})
+        myctrl = xr.Dataset({'mymodel':mymodel,'m0':m0})
+        myctrl.to_netcdf(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
+        ctrl_ds.to_netcdf(dirs['nctmp']+f'/{self.experiment}_cds.nc')
+        myobs = xr.Dataset({'obs_mask':obs_mask,'obs_std':obs_std,'obs_mean':obs_mean})
         myobs.to_netcdf(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
         # --- "pickup" experiment at startat
@@ -162,23 +176,27 @@ class OIDriver:
         dsim = read_json('_sim.json')
         kwargs = read_json('_kwargs.json')
 
-        mymodel = xr.open_dataarray(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
+        myctrl = xr.open_dataset(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
+        cds = xr.open_dataset(dirs['nctmp']+f'/{self.experiment}_cds.nc')
         myobs = xr.open_dataset(dirs['nctmp']+f'/{self.experiment}_obs.nc')
 
-        modeldims=list(mymodel.dims)
+        modeldims=list(myctrl['mymodel'].dims)
         obsdims = list(myobs['obs_mask'].dims)
 
         # --- Carry these things around
         self.dirs = dirs
         self.dsim = dsim
-        self.mymodel = mymodel
+        self.mymodel = myctrl['mymodel']
+        self.cds = cds
+        self.m0 = myctrl['m0'].sortby(modeldims)
+        self.obs_mean = myobs['obs_mean']
         self.obs_std = myobs['obs_std']
-        self.ctrl = rp.ControlField('ctrl',mymodel.sortby(modeldims))
+        self.ctrl = rp.ControlField('ctrl',self.mymodel.sortby(modeldims))
         self.obs = rp.ControlField('obs',
                                    myobs['obs_mask'].sortby(obsdims).astype('bool'))
 
         # --- Get the interpolation operator
-        mdimssort = [mymodel[dim].sortby(dim) for dim in modeldims]
+        mdimssort = [self.mymodel[dim].sortby(dim) for dim in modeldims]
         odimssort = [myobs[dim].sortby(dim) for dim in obsdims]
         self.F = pm.interp_operator_2d(mdimssort,odimssort,
                                        pack_index_in=self.ctrl.wet_ind,
@@ -192,7 +210,7 @@ class OIDriver:
     def _send_to_stage(self,stage):
         possible_stages = ['range_approx_one','range_approx_two', 
                            'basis_projection_one','basis_projection_two', 
-                           'do_the_evd','save_the_evd']
+                           'do_the_evd','solve_for_map','save_the_evd']
 
         if stage in possible_stages:
             self.pickup()
@@ -529,8 +547,185 @@ class OIDriver:
         evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
 
         # --- Pass on to next stage
-        self.submit_next_stage(next_stage='save_the_evd',
+        self.submit_next_stage(next_stage='solve_for_map',
                                jid_depends=jid_list,mysim=sim)
+
+    def solve_for_map(self,m0=None,n_small=None):
+        """Optional to re-run this from the last stage with another initial guess"""
+
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj2.nc')
+        evds['filternorm'].load();
+
+        evds = _add_map_fields(evds,self.beta)
+
+        if m0 is not None:
+            self.m0 = m0
+
+        # --- Pack to deal with arrays
+        [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip( \
+                                            [self.m0,self.obs_mean,self.obs_std],
+                                            [self.ctrl,self.obs,self.obs])]
+        obs_std_inv = obs_std**-1
+        obs_var_inv = obs_std**-2
+
+        # --- Compute initial misfit: F m_0 - d, and weighted versions
+        initial_misfit = obs_mean - evds['F'].values @ m0
+
+        # --- Map back to model grid and apply posterior via EVD
+        misfit2model = evds['F'].T.values @ (obs_var_inv * initial_misfit)
+
+        for nx in self.NxList:
+            for fxy in self.FxyList:
+
+                # --- Prepare directories
+                read_dir, write_dir, run_dir = self._get_dirs('solve_for_map',nx,fxy)
+
+                # --- Possibly use lower dimensional subspace and get arrays
+                U = evds['U'].sel(Nx=nx,Fxy=fxy).values
+                U = U[:,:self.n_small] if n_small is None else U[:,:n_small]
+
+                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
+                filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
+
+                C,K = matern.get_matern(Nx=nx,mymask=self.ctrl.mask,Fxy=fxy)
+
+                # --- Apply prior
+                prior_misfit2model = self.ctrl.unpack(misfit2model)
+                smooth2DInput = prior_misfit2model.broadcast_like(\
+                        evds.beta*prior_misfit2model)
+                smooth2DOutput = self.submit_matern( \
+                                    fld=smooth2DInput,
+                                    Nx=nx,Fxy=fxy,
+                                    namelist_dir=self.dirs['namelist_map'],
+                                    write_dir=write_dir,
+                                    run_dir=run_dir,
+                                    run_suff='map1')
+                prior_misfit2model = filternorm*smooth2DOutput.isel(sample=0)
+                prior_misfit2model = self.ctrl.pack(prior_misfit2model)
+
+                smooth2DInput = []
+                for b in self.beta:
+        
+                    # --- Possibly account for lower dimensional subspace
+                    Dinv = evds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values
+                    Dinv = Dinv[:self.n_small] if n_small is None else Dinv[:n_small]
+
+                    # --- Apply (I-UDU^T)
+                    udu = U @ ( Dinv * ( U.T @ (b*prior_misfit2model)))
+                    iudu = b*prior_misfit2model - udu
+
+                    iudu = self.ctrl.unpack(iudu)
+                    smooth2DInput.append(iudu)
+
+                # --- Apply prior half
+                smooth2DInput = xr.concat(smooth2DInput,dim='beta')
+                smooth2DOutput = self.submit_matern( \
+                                    fld=smooth2DInput,
+                                    Nx=nx,Fxy=fxy,
+                                    namelist_dir=self.dirs['namelist_map'],
+                                    write_dir=write_dir,
+                                    run_dir=run_dir,
+                                    run_suff='map2')
+
+                for s,b in enumerate(self.beta):
+
+                    mmap = m0 + self.ctrl.pack(b*filternorm*smooth2DOutput.sel(sample=s))
+
+                    # --- Compute m_map - m0, and weighted version
+                    dm = filterstd*self.ctrl.unpack(mmap - m0)
+                    dm_normalized = (b**-1) * rp.apply_matern_2d( \
+                                                fld_in=dm,
+                                                mask3D=self.cds.maskC,
+                                                mask2D=self.ctrl.mask,
+                                                ds=self.cds,
+                                                delta=C['delta'],
+                                                Kux=None,Kvy=K['vy'],Kwz=K['wz'])
+
+                    dm_normalized = rp.to_xda(self.ctrl.pack(dm_normalized),evds)
+                    with xr.set_options(keep_attrs=True):
+                        evds['m_map'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                                rp.to_xda(mmap,evds)
+                        evds['reg_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                            np.linalg.norm(dm_normalized,ord=2)
+
+                    # --- Compute misfits, and weighted version
+                    misfits = evds['F'].values @ mmap - obs_mean
+                    misfits_model_space = rp.to_xda( \
+                            mmap - evds['F'].T.values @ obs_mean,evds)
+                    misfits_model_space = misfits_model_space.where( \
+                                            evds['F'].T.values @ obs_mean !=0)
+
+                    with xr.set_options(keep_attrs=True):
+                        evds['misfits'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                                rp.to_xda(misfits,evds)
+                        evds['misfits_normalized'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                            rp.to_xda(obs_std_inv * misfits,evds)
+                        evds['misfit_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                            np.linalg.norm(obs_std_inv * misfits,ord=2)
+                        evds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                            misfits_model_space
+
+            print(f' --- Done with Fxy = {fxy} ---')
+        print(f' --- Done with Nx = {nx} ---')
+        evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_map.nc')
+
+
+    def submit_matern(self,
+                      fld,
+                      Nx,Fxy,
+                      namelist_dir,write_dir,run_dir,
+                      run_suff):
+        """Use the MITgcm to smooth a small number of fields, wait for result
+
+        Inputs
+        ------
+        fld : xarray DataArray
+            with possibly multiple records,
+            uses the namelist_map directory for data.smooth
+        Nx, Fxy : int
+            specifies the prior
+        namelist_dir, write_dir, run_dir : str
+            telling the simulation where to do stuff
+        """
+
+        nrecs = fld.shape[0] if fld.shape!=self.ctrl.mask.shape else 1
+
+        # --- Write and submit
+        fld = fld.reindex_like(self.mymodel).values
+        fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03}'
+        wrmds(fname,arr=fld,dataprec=self.dataprec,nrecords=nrecs)
+        matern.write_matern(write_dir,
+                 smoothOpNb=self.smoothOpNb,Nx=Nx,mymask=self.ctrl.mask,
+                 xdalike=self.mymodel,Fxy=Fxy)
+        sim = rp.Simulation(name=f'{Nx:02}dx_{Fxy:02}fxy_{run_suff}',
+                            namelist_dir=namelist_dir,
+                            run_dir=run_dir,
+                            obs_dir=write_dir,**self.dsim)
+
+        sim.link_to_run_dir()
+        sim.write_slurm_script()
+        jid = sim.submit_slurm(**self.slurm)
+
+        # --- Wait until done
+        doneyet = False
+        check_str = 'squeue -u $USER -ho %A --sort=S'
+        fnameout = f'{run_dir}/smooth2Dfld{self.smoothOpNb:03}'
+        while not doneyet:
+            pout = subprocess.run(check_str,shell=True,capture_output=True)
+            jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
+            doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
+            sleep(1)
+
+        # --- Done! Read the output
+        dsout = matern.get_matern_dataset(run_dir,smoothOpNb=self.smoothOpNb,
+                                   xdalike=self.mymodel,
+                                   sample_num=np.arange(nrecs),
+                                   read_filternorm=False)
+        fld_out = dsout['ginv'].reindex_like(self.ctrl.mask).load();
+        rmtree(sim.run_dir)
+
+        return fld_out
+        
 
     def save_the_evd(self):
 
@@ -646,6 +841,10 @@ class OIDriver:
             read_str = 'project2'
             write_str = 'evd'
 
+        elif stage == 'solve_for_map':
+            read_str = 'evd'
+            write_str = 'map'
+
         elif stage == 'save_the_evd':
             read_str = 'evd'
             write_str = None
@@ -677,3 +876,51 @@ def _dir(dirname):
     return dirname
 
 
+def _add_map_fields(ds,beta):
+    """Helper routine to define some container fields
+
+    """
+
+    ds['beta'] = xr.DataArray(beta,coords={'beta':beta},dims=('beta',))
+
+    # Recompute eigenvalues
+    ds['Dorig'] = ds['D'].copy()
+    ds['D'] = ds.beta**2 * ds.Dorig 
+    ds['Dinv'] = ds.D / (1+ ds.D)
+
+    bfn = ds['beta']*ds['Fxy']*ds['Nx']
+    ds['m_map'] = xr.zeros_like(bfn*ds['ctrl_ind'])
+    ds['reg_norm'] = xr.zeros_like(bfn)
+    ds['misfits'] = xr.zeros_like(bfn*ds['obs_ind'])
+    ds['misfits_normalized'] = xr.zeros_like(bfn*ds['obs_ind'])
+    ds['misfit_norm'] = xr.zeros_like(bfn)
+    ds['misfits_model_space'] = xr.zeros_like(bfn*ds['ctrl_ind'])
+
+    # --- some descriptive attributes
+    ds['beta'].attrs = {'label':r'$\beta$','description':'regularization parameter'}
+    ds['m_map'].attrs = {'label':r'$\mathbf{m}_{MAP}$',
+            'description':r'Maximum a Posteriori solution for control parameter $\mathbf{m}$'}
+    ds['reg_norm'].attrs = {'label':r'$||\mathbf{m}_{MAP} - \mathbf{m}_0||_{\Gamma_{prior}^{-1}}$',
+            'label2':r'$||\Gamma_{prior}^{-1/2}(\mathbf{m}_{MAP} - \mathbf{m}_0)||_2$',
+            'description':'Normed difference between initial and MAP solution, weighted by prior uncertainty'}
+    ds['misfits'].attrs = {'label':r'$F\mathbf{m}_{MAP} - \mathbf{d}$',
+            'description':'Difference between MAP solution and observations'}
+    ds['misfits_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}}$',
+            'description':'Difference between MAP solution and observations, normalized by observation uncertainty'}
+    ds['misfit_norm'].attrs = {'label':r'$||F\mathbf{m}_{MAP} - \mathbf{d}||_{\Gamma_{obs}^{-1}}$',
+            'label2':r'$||\Gamma_{obs}^{-1/2}(F\mathbf{m}_{MAP} - \mathbf{d})||_2$',
+            'description':'Normed difference between MAP solution and observations, weighted by observational uncertainty'}
+    ds['misfits_model_space'].attrs = {'label':r'$\mathbf{m}_{MAP} - F^T\mathbf{d}$',
+            'description':'Difference between MAP solution and observations, in model domain'}
+
+    return ds
+
+
+def _unpack_field(fld,packer=None):
+    if packer is not None:
+        if len(fld.shape)>1 or len(fld)!=packer.n_wet:
+            fld = packer.pack(fld)
+    else:
+        if len(fld.shape)>1:
+            fld = fld.flatten() if isinstance(fld,np.ndarray) else fld.values.flatten()
+    return fld
