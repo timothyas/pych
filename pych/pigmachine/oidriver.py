@@ -77,8 +77,9 @@ class OIDriver:
             'basis_projection_one'
             'basis_projection_two'
             'do_the_evd'
+            'prior_to_misfit'
             'solve_for_map'
-            'save_the_evd'
+            'save_the_map'
         """
         self.experiment = experiment
         self._send_to_stage(stage)
@@ -442,14 +443,13 @@ class OIDriver:
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
         evds['Q'].load();
-        jid_list = []
         dslistNx = []
         for nx in self.NxList:
             dslistFxy = []
             for fxy in self.FxyList:
 
                 # --- Prepare directories
-                read_dir, write_dir, run_dir = self._get_dirs('do_the_evd',nx,fxy)
+                read_dir, _, _ = self._get_dirs('do_the_evd',nx,fxy)
 
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -493,10 +493,8 @@ class OIDriver:
         evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
 
         # --- Pass on to next stage
-        sim = rp.Simulation(name='evd',
-                **self.dsim)
-        self.submit_next_stage(next_stage='prior_to_misfit',
-                               jid_depends=jid_list,mysim=sim)
+        sim = rp.Simulation(name='evd',**self.dsim)
+        self.submit_next_stage(next_stage='prior_to_misfit',mysim=sim)
 
     def prior_to_misfit(self):
         """Optional to re-run this from the last stage with another initial guess"""
@@ -563,7 +561,7 @@ class OIDriver:
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
 
-                prior_misfit2model = filternorm*ds['ginv'].isel(sample=0)
+                prior_misfit2model = filternorm*ds['ginv']
                 prior_misfit2model = self.ctrl.pack(prior_misfit2model)
 
                 smooth2DInput = []
@@ -736,7 +734,11 @@ class OIDriver:
         if jid_depends is not None:
             jid_depends = [jid_depends] if isinstance(jid_depends,int) else jid_depends
             jid_depends = str(jid_depends).replace(', ',':').replace('[','').replace(']','')
-            slurmstring=f'sbatch --dependency=afterany:{jid_depends} {bashname}'
+            # catch case of 0 length list
+            if jid_depends == '':
+                slurmstring=f'sbatch {bashname}'
+            else:
+                slurmstring=f'sbatch --dependency=afterany:{jid_depends} {bashname}'
         else:
             slurmstring=f'sbatch {bashname}'
 
@@ -791,7 +793,7 @@ class OIDriver:
 
         elif stage == 'do_the_evd':
             read_str = 'project2'
-            write_str = 'evd'
+            write_str = None
 
         elif stage == 'prior_to_misfit':
             read_str = 'project2'
