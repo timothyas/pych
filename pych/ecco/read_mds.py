@@ -11,10 +11,7 @@ import MITgcmutils as mut
 from ecco_v4_py import llc_compact_to_tiles
 
 
-def read_mds(data_dir,grid_dir=None,
-             prefix=None, iters='all', 
-             ignore_unknown_vars=False,
-             llc_method="smallchunks"):
+def read_mds(data_dir,**kwargs):
     """A simple wrapper for xmitgcm.open_mdsdataset to reduce my typing
        Set xmitgcm 'face' coordinate -> 'tile' to work with ECCOv4-py
 
@@ -23,16 +20,8 @@ def read_mds(data_dir,grid_dir=None,
 
     data_dir : string
         location of the *.meta/.data files with ECCO fields
-    grid_dir : string, optional
-        location of grid variables. If not provided, look in data_dir
-    prefix : string, optional
-        file prefixes to look for
-    iters : list, optional
-        see xmitgcm.open_mdsdataset. Set to None to just read the grid
-    ignore_unknown_vars : bool, optional
-        pretty self explanatory
-    llc_method : string, optional
-        memmap for how to load llc. 
+    all additional arguments passed to xmitgcm.open_dataset, see 
+    https://xmitgcm.readthedocs.io/en/latest/usage.html
 
     Output
     ------
@@ -50,15 +39,10 @@ def read_mds(data_dir,grid_dir=None,
     # Open up the dataset
     ds = open_mdsdataset(
             data_dir=data_dir,
-            grid_dir=grid_dir,
-            prefix=prefix,
-            iters=iters,
-            ignore_unknown_vars=ignore_unknown_vars,
             delta_t=3600,
             ref_date='1992-01-1',
             geometry='llc',
-            llc_method=llc_method
-    )
+            **kwargs)
 
     # Swap 'face' coordinate with 'tiles' for use with ecco_v4_py
     ds = ds.rename(name_dict={'face' : 'tile'})
