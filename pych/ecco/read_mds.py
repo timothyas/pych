@@ -40,7 +40,7 @@ def read_mds(data_dir,**kwargs):
     ds = open_mdsdataset(
             data_dir=data_dir,
             delta_t=3600,
-            ref_date='1992-01-1',
+            ref_date='1992-01-01T12:00:00',
             geometry='llc',
             **kwargs)
 
