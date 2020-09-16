@@ -144,6 +144,7 @@ class OIDriver:
             write_json(kwargs,'_kwargs.json')
 
         # --- Write ctrl and obs datasets to netcdf
+        m0 = m0.reindex_like(mymodel)
         myctrl = xr.Dataset({'mymodel':mymodel,'m0':m0})
         myctrl.to_netcdf(dirs['nctmp']+f'/{self.experiment}_ctrl.nc')
         ctrl_ds.to_netcdf(dirs['nctmp']+f'/{self.experiment}_cds.nc')
