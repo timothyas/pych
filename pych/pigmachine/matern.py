@@ -9,8 +9,15 @@ import os
 import numpy as np
 import xarray as xr
 from MITgcmutils import wrmds
+from scipy.special import gamma
 
 from .io import read_mds
+
+def calc_variance(Nx,ndims=2):
+    nu = 1/2 if ndims==3 else 1
+    delta_hat = 8*nu / (Nx**2)
+    denom = gamma(nu+ndims/2)*((4*np.pi)**(ndims/2))*(delta_hat**(nu))
+    return gamma(nu)/denom
 
 def get_alpha(ds):
     """Return the grid-define aspect ratio

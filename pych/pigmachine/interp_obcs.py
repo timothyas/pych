@@ -15,6 +15,14 @@ from rosypig import to_xda, apply_matern_2d, inverse_matern_2d,Simulation
 from .matern import get_matern,write_matern,write_matern,get_matern_dataset
 from .io import read_mds
 
+def get_beta_best(ds):
+    ds['beta_best'] = xr.zeros_like(ds.Fxy*ds.Nx)
+    bbest = ds.beta.broadcast_like(ds.misfit_norm).where(ds.misfit_norm==ds.misfit_norm.min(['beta']))
+    for Nx in ds.Nx.values:
+        for Fxy in ds.Fxy.values:
+            ds.beta_best.loc[{'Nx':Nx,'Fxy':Fxy}]= float(bbest.sel(Nx=Nx,Fxy=Fxy).dropna('beta').values)
+    ds['beta_best'].attrs = {'label':r'$\beta_{best}$'}
+
 def solve_for_map_2(ds, m0, obs_mean, obs_std,
                   m_packer, obs_packer, mask3D, mds,
                   n_small=None,xdalike=None,dsim=None,dirs=None):

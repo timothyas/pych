@@ -8,6 +8,95 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import cartopy.crs as ccrs
 
+from .matern import calc_variance
+
+def plot_lcurve_discrep(ds,d3,dim1='beta',dim2='Nx',dim3='Fxy',
+                        fig=None,axs=None,linestyle='-',
+                        doLabel=True,lbl_skip=2,
+                        legend_labels=None):
+    """plot L-Curve Criterion and "discrepancy principle plots next to each other"""
+
+    if axs is None:
+        fig,axs = plt.subplots(1,2,figsize=(18,6))
+    if legend_labels is None:
+        if dim1=='Nx':
+            legend_labels = ['%d'%d1 for d1 in ds[dim1].values]
+        else:
+            legend_labels = ['%1.1e'%d1 for d1 in ds[dim1].values]
+
+    for llbl,d1 in zip(legend_labels,ds[dim1].values):
+
+        regnorm = []
+        true_reg = []
+        misfitnorm = []
+        lbl_list = []
+        for d2 in ds[dim2].values:
+            # Select d3
+            if isinstance(d3,xr.core.dataarray.DataArray):
+                myd3 = float(d3.sel({dim1:d1,dim2:d2}).values)
+            else:
+                myd3 = d3
+            plotme = ds.sel({dim1:d1,dim2:d2,dim3:myd3},method='nearest')
+            var = calc_variance(plotme.Nx.values)
+            reg = var / (plotme.beta.values**2)
+            true_reg.append(reg)
+
+            y = 1/reg * plotme.reg_norm.values
+            x = plotme.misfit_norm.values
+            regnorm.append(y)
+            misfitnorm.append(x)
+            lbl_list.append(d2)
+        true_reg = np.array(true_reg)
+        regnorm = np.array(regnorm)
+        misfitnorm = np.array(misfitnorm)
+
+        # --- L-Curve
+        axs[0].loglog(misfitnorm,regnorm,marker='o',label=llbl,linestyle=linestyle)
+
+        # --- Discrepancy
+        axs[1].loglog(true_reg,misfitnorm,marker='o',label=llbl,linestyle=linestyle)
+
+        # --- labeling
+        if doLabel:
+            for x,y,ax in zip([misfitnorm,true_reg],
+                              [regnorm,misfitnorm],
+                              axs):
+                for xi,yi,bi in zip(x[::lbl_skip],y[::lbl_skip],lbl_list[::lbl_skip]):
+                    lbl = ds[dim2].label
+                    lbl = lbl+'=%d' % bi if dim2=='Nx' else lbl+'=%1.1e' % bi
+                    ax.text(xi,yi,lbl)
+
+    [ax.grid() for ax in axs];
+    if isinstance(d3,xr.core.dataarray.DataArray):
+        [ax.legend(title=ds[dim1].label+f', ({ds[dim3].label})') for ax in axs];
+    else:
+        [ax.legend(title=ds[dim1].label+f', ({ds[dim3].label}={d3})') for ax in axs];
+    axs[0].set(xlabel=ds.misfit_norm.label,ylabel=ds.reg_norm.label)
+    axs[1].set(xlabel=r'$\nu/\beta^2$',ylabel=ds.misfit_norm.label);
+    return fig,axs
+
+def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,**kwargs):
+
+    ds = ds_in.sel(Nx=Nx,Fxy=Fxy,beta=beta,method='nearest')
+
+    fig,axs = plt.subplots(1,2,figsize=(18,6))
+
+    # --- MAP Point
+    mmap = ctrl_packer.unpack(ds['m_map'],np.NAN)
+    mmap.plot(ax=axs[0],**kwargs)
+
+    mylabel =   ds.m_map.label+'\n'+ \
+                ds.Nx.label+f' = {int(ds.Nx.values)}\n'+\
+                ds.Fxy.label+f' = {float(ds.Fxy.values)}\n'+\
+                ds.beta.label+f' = {float(ds.beta.values):1.1e}'
+    axs[0].text(-75.3,-1000,mylabel,horizontalalignment='center')
+
+    # --- Normalized Misfits
+    misfits = obs_packer.unpack(ds['misfits_normalized'],np.NAN)
+    misfits.plot(ax=axs[1])
+    axs[1].text(-75.05,-1000, ds.misfits_normalized.label)
+
+    [ax.set(title='',xlabel='',ylabel='') for ax in axs];
 
 def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
                 cbar_kwargs={},background='black',figsize=(12,10),
