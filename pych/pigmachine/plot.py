@@ -75,7 +75,8 @@ def plot_lcurve_discrep(ds,d3,dim1='beta',dim2='Nx',dim3='Fxy',
     axs[1].set(xlabel=r'$\nu/\beta^2$',ylabel=ds.misfit_norm.label);
     return fig,axs
 
-def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,**kwargs):
+def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,
+                         misfit_fld='misfits_normalized',**kwargs):
 
     ds = ds_in.sel(Nx=Nx,Fxy=Fxy,beta=beta,method='nearest')
 
@@ -92,9 +93,9 @@ def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,**kwargs):
     axs[0].text(-75.3,-1000,mylabel,horizontalalignment='center')
 
     # --- Normalized Misfits
-    misfits = obs_packer.unpack(ds['misfits_normalized'],np.NAN)
+    misfits = obs_packer.unpack(ds[misfit_fld],np.NAN)
     misfits.plot(ax=axs[1])
-    axs[1].text(-75.05,-1000, ds.misfits_normalized.label)
+    axs[1].text(-75.05,-1000, ds[misfit_fld].label)
 
     [ax.set(title='',xlabel='',ylabel='') for ax in axs];
 
