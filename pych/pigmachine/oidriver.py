@@ -234,13 +234,24 @@ class OIDriver:
 # Range Approximation
 # ---------------------------------------------------------------------
     def range_approx_one(self):
+        """Define the Laplacian-like operator A = delta - div(kappa grad( )) 
+        and use the MITgcm to:
+
+            1. generate n_rand gaussian random samples, g_i
+            2. solve the linear system for z_i: Az_i = g_i
+               to get the range of A^{-1}
+            3. use to compute the sample variance of A^{-1}
+
+        ... pass to the next step
+        """
         jid_list = []
         for nx in self.NxList:
             for fxy in self.FxyList:
 
                 _, write_dir, run_dir = self._get_dirs('range_approx_one',nx,fxy)
 
-                self.smooth_writer(write_dir, Fxy=fxy, smooth_apply=False)
+                self.smooth_writer(write_dir, Fxy=fxy, smooth_apply=False,
+                                    num_inputs=self.n_rand)
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
                                     Nx=nx,mymask=self.ctrl.mask,
@@ -263,6 +274,17 @@ class OIDriver:
                                jid_depends=jid_list)
 
     def range_approx_two(self):
+        """Given the output from range_approx_one, the n_rand vectors z_i
+
+            1. Read in all z_i, and the inverse square root of the
+                variance associated with A^{-1} as the filternorm, X
+            2. For each z_i compute:
+                w_i = XF^T\Gamma_{obs}^{-1}FX z_i
+            3. Send to the MITgcm to solve the linear system for y_i:
+                A y_i = w_i
+
+        ... pass to next step
+        """
 
         jid_list = []
         dslistNx = []
@@ -304,7 +326,7 @@ class OIDriver:
 
                 # --- Write matern operator and submit job
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy)
+                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
                                    Nx=nx,Fxy=fxy,
                                    write_dir=write_dir,
@@ -328,6 +350,18 @@ class OIDriver:
 # Form and project onto low dimensional subspace
 # ---------------------------------------------------------------------
     def basis_projection_one(self):
+        """From the previous steps we have the vectors y_i, which form the columns
+        of the matrix Y. This is used to approximate the range of:
+
+            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1}
+
+            1. orthonormalize the range approximator Y -> Q
+            2. start projecting M onto this orthonormal basis by
+                sending to the MITgcm to solve for z_i
+                    A z_i = q_i
+
+        ... send to next stage
+        """
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
         jid_list=[]
@@ -366,12 +400,12 @@ class OIDriver:
         
                 # --- Write out Q and submit job
                 smooth2DInput = []
-                for i in range(evds.n_rand):
+                for i in range(self.n_rand):
                     q = self.ctrl.unpack(Q[:,i],fill_value=0.)
                     smooth2DInput.append(q)
 
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy)
+                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
                                    Nx=nx,Fxy=fxy,
                                    write_dir=write_dir,
@@ -392,6 +426,18 @@ class OIDriver:
                                jid_depends=jid_list,mysim=sim)
 
     def basis_projection_two(self):
+        """From the previous step we have the vectors z_i, which is the
+        start of projecting M onto the reduced basis defined by Q, with
+
+            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1}
+
+            1. read in z_i
+            2. compute w_i = XF^T\Gamma_{obs}^{-1}FX z_i
+            3. send to the MITgcm to solve for y_i:
+                    A y_i = w_i
+
+        ... send to next stage
+        """
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
         evds['filternorm'].load();
         evds['F'].load();
@@ -425,7 +471,7 @@ class OIDriver:
 
                 # --- Write out and submit next application
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy)
+                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
                                    Nx=nx,Fxy=fxy,
                                    write_dir=write_dir,
@@ -441,6 +487,19 @@ class OIDriver:
 # Compute and save the low dimensional EVD
 # ---------------------------------------------------------------------
     def do_the_evd(self):
+        """From the previous step we have the vectors w_i, which
+        forms MQ, where
+
+            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1}
+
+            1. read in w_i to form the columns of the matrix W
+            2. compute B = Q^T W = Q^T M Q
+            3. find the eigenvalue decomposition of B: B = UDU^T
+            4. get eigenpairs in order of descending eigenvalues
+            5. approximate eigenvectors of M are U <- QU
+
+        ... send to next stage
+        """
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
         evds['Q'].load();
@@ -498,7 +557,23 @@ class OIDriver:
         self.submit_next_stage(next_stage='prior_to_misfit',mysim=sim)
 
     def prior_to_misfit(self):
-        """Optional to re-run this from the last stage with another initial guess"""
+        """Optional to re-run this from the last stage with another initial guess
+        Given the eigenvalue decomposition of 
+
+            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1} = UDU^T
+
+        Start computing the MAP point:
+
+            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+        for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
+            P^{1/2} = sigma  X A^{-1}
+
+            1. Compute misfit2model = X F^T \Gamma_{obs}^{1/2}( d - F m_0 )
+            2. Pass to MITgcm to solve for z_i:
+                A z_i = misfit2model
+
+        ... pass to next step
+        """
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
@@ -516,11 +591,10 @@ class OIDriver:
                 # --- Prepare directories
                 read_dir, write_dir, run_dir = self._get_dirs('prior_to_misfit',nx,fxy)
 
-                # --- Possibly use lower dimensional subspace and get arrays
-                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
+                # --- Apply prior^T/2
+                filternorm = evds['filternorm'].sel(Nx=nx,Fxy=fxy)
+                smooth2DInput = self.ctrl.unpack(filternorm*misfit2model)
 
-                # --- Apply prior
-                smooth2DInput = self.ctrl.unpack(misfit2model)
                 self.smooth_writer(write_dir, Fxy=fxy, num_inputs=1)
                 jid,sim = self.submit_matern( \
                                     fld=smooth2DInput,
@@ -535,7 +609,21 @@ class OIDriver:
 
 
     def solve_for_map(self):
-        """Optional to re-run this from the last stage with another initial guess"""
+        """Optional to re-run this from the last stage with another initial guess
+
+        Continue computing the MAP point:
+
+            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+        for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
+            P^{1/2} = sigma  X A^{-1}
+
+            1. read in z_i from previous step: z_i = A^{-1}XF^T \Gamma_{obs}^{1/2}( d - Fm_0)
+            2. Compute: iudu = (I - U D_{inv} U^T) sigma  z_i
+            2. Pass to MITgcm to solve for w_i:
+                A w_i = iudu
+
+        ... pass to final stage...
+        """
 
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
@@ -552,9 +640,6 @@ class OIDriver:
                 # --- Possibly use lower dimensional subspace and get arrays
                 U = evds['U'].sel(Nx=nx,Fxy=fxy).values[:,:self.n_small]
 
-                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
-
-
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
                                                xdalike=self.mymodel,
@@ -562,8 +647,7 @@ class OIDriver:
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
 
-                prior_misfit2model = filternorm*ds['ginv']
-                prior_misfit2model = self.ctrl.pack(prior_misfit2model)
+                prior_misfit2model = self.ctrl.pack(ds['ginv'])
 
                 smooth2DInput = []
                 for b in self.beta:
@@ -572,8 +656,8 @@ class OIDriver:
                     Dinv = evds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values[:self.n_small]
 
                     # --- Apply (I-UDU^T)
-                    udu = U @ ( Dinv * ( U.T @ (b*prior_misfit2model)))
-                    iudu = b*prior_misfit2model - udu
+                    udu = U @ ( Dinv * ( U.T @ prior_misfit2model))
+                    iudu = prior_misfit2model - udu
 
                     iudu = self.ctrl.unpack(iudu)
                     smooth2DInput.append(iudu)
@@ -593,6 +677,19 @@ class OIDriver:
                                jid_depends=jid_list,mysim=sim)
 
     def save_the_map(self):
+        """Finish computing the MAP point:
+
+            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+        for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
+            P^{1/2} = sigma  X A^{-1}
+
+            1. read in w_i from previous step: w_i = A^{-1}(I - UD_{inv}U^T) z_i
+            2. compute: m_update= sigma^2 Xw_i
+            3. m_map = m0 + m_update
+            4. compute misfits of every flavor
+            5. be like jesus (save it!)
+
+        """
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_map.nc')
         evds['filternorm'].load();
 
@@ -617,7 +714,7 @@ class OIDriver:
                 ds['ginv'].load();
                 for s,b in enumerate(self.beta):
 
-                    m_update = b*filternorm*ds['ginv'].sel(sample=s)
+                    m_update = (b**2)*filternorm*ds['ginv'].sel(sample=s)
                     mmap = self.m0 + self.ctrl.pack(m_update)
 
                     # --- Compute m_map - m0, and weighted version
