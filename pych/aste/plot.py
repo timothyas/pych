@@ -74,7 +74,7 @@ class aste_map:
 
         # Longitudes latitudes to which we will we interpolate
         lon_tmp = np.arange(-180, 180, dx) + dx / 2
-        lat_tmp = np.arange(-90, 90, dy) + dy / 2
+        lat_tmp = np.arange(-35, 90, dy) + dy / 2
 
         # Define the lat lon points of the two parts.
         self.new_grid_lon, self.new_grid_lat = np.meshgrid(lon_tmp, lat_tmp)
@@ -91,7 +91,7 @@ class aste_map:
         lat_0=50,
         figsize=(6, 6),
         show_cbar=True,
-        cbar_label="",
+        cbar_label=None,
         **plt_kwargs,
     ):
 
@@ -106,18 +106,19 @@ class aste_map:
 
         field = self.regrid(da)
 
-        vmax = plt_kwargs.pop("vmax", np.nanmax(field))
-        vmin = plt_kwargs.pop("vmin", np.nanmin(field))
+        vmax = np.nanmax(field)
+        vmin = np.nanmin(field)
         if vmax * vmin < 0:
-            vmax = np.nanmax([vmax, vmin])
+            vmax = np.nanmax([np.abs(vmax), np.abs(vmin)])
             vmin = -vmax
+        vmax = plt_kwargs.pop("vmax", vmax)
+        vmin = plt_kwargs.pop("vmin", vmin)
 
         # Handle colorbar and NaN color
-        default_cmap = "RdBu_r" if vmax * vmin < 0 else "viridis"
-        cmap = plt_kwargs.pop("cmap", default_cmap)
-        if type(cmap) == str:
+        cmap = "RdBu_r" if vmax * vmin < 0 else "viridis"
+        cmap = plt_kwargs.pop("cmap", cmap)
+        if isinstance(cmap,str):
             cmap = plt.cm.get_cmap(cmap)
-        cmap.set_bad(color="gray", alpha=0.6)
 
         x, y = self.new_grid_lon, self.new_grid_lat
 
@@ -151,7 +152,7 @@ class aste_map:
         )
 
         # Add land and coastlines
-        ax.add_feature(cf.LAND.with_scale("50m"), zorder=3)
+        ax.add_feature(cf.LAND.with_scale("50m"), facecolor='0.75',zorder=3)
         ax.add_feature(cf.COASTLINE.with_scale("50m"), zorder=3)
 
         # Add gridlines
@@ -161,8 +162,16 @@ class aste_map:
             linewidth=2,
             color="gray",
             alpha=0.5,
-            linestyle="--",
+            linestyle="-",
         )
+
+        # Add label from attributes
+        if cbar_label is None:
+            cbar_label = ""
+            if "long_name" in da.attrs:
+                cbar_label = cbar_label+da.long_name+" "
+            if "units" in da.attrs:
+                cbar_label = cbar_label+f"[{da.units}]"
 
         # Colorbar...
         if show_cbar:
@@ -170,11 +179,12 @@ class aste_map:
                 p,
                 ax=ax,
                 shrink=0.8,
-                label=cbar_label,
                 orientation="horizontal",
                 pad=0.05,
+                label=cbar_label
             )
             cb.ax.tick_params()
+
 
         return ax
 
