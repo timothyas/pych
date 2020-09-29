@@ -62,6 +62,7 @@ class OIDriver:
     smooth2DDims = 'yzw'
     jacobi_max_iters = 20000
     conda_env = 'py38_tim'
+    doRegularizeDebug = False
     def __init__(self, experiment,stage=None):
         """Should this initialize? Or do we want another method to do it?
         
@@ -628,7 +629,7 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
 
-        evds = _add_map_fields(evds,self.beta)
+        evds = _add_map_fields(evds,self.beta,self.doRegularizeDebug)
 
         jid_list = []
         for nx in self.NxList:
@@ -658,7 +659,6 @@ class OIDriver:
                     # --- Apply (I-UDU^T)
                     udu = U @ ( Dinv * ( U.T @ prior_misfit2model))
                     iudu = prior_misfit2model - udu
-
                     iudu = self.ctrl.unpack(iudu)
                     smooth2DInput.append(iudu)
 
@@ -734,6 +734,12 @@ class OIDriver:
                         evds['reg_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             np.linalg.norm(dm_normalized,ord=2)
 
+                    if self.doRegularizeDebug:
+                        evds = self.regular_debug_plots(evds=evds, \
+                                Nx=nx,Fxy=fxy,beta=b,m_update=m_update,
+                                C=C,K=K)
+
+
                     # --- Compute misfits, and weighted version
                     misfits = evds['F'].values @ mmap - self.obs_mean
                     misfits_model_space = rp.to_xda( \
@@ -752,6 +758,37 @@ class OIDriver:
                             misfits_model_space
 
         evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_map.nc')
+
+    def regular_debug_plots(self,evds,Nx,Fxy,beta,m_update,C,K):
+
+        # --- Extra regularization terms
+        var = matern.calc_variance(Nx=Nx) 
+        SHalfmat = filterstd / np.sqrt(var)
+        dm = filterstd*m_update
+        rlap = (beta**-1)*rp.apply_laplacian_2d( \
+                fld_in = dm,
+                mask3D=self.cds.maskC,
+                mask2D=self.ctrl.mask,
+                ds=self.cds,
+                Kux=None,Kvy=K['vy'],Kwz=K['wz'])
+        rdelta =(beta**-1)* C['delta'] * dm
+        rslap = (beta**-1)*rp.apply_laplacian_2d( \
+                fld_in = SHalfmat*m_update,
+                mask3D=self.cds.maskC,
+                mask2D=self.ctrl.mask,
+                ds=self.cds,
+                Kux=None,Kvy=K['vy'],Kwz=K['wz'])
+        rsdelta = (beta**-1)*C['delta'] * (SHalfmat * m_update)
+        with xr.set_options(keep_attrs=True):
+            evds['reg_delta'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+                    np.linalg.norm(rdelta,ord=2)
+            evds['reg_laplacian'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+                    np.linalg.norm(rlap,ord=2)
+            evds['reg_S_delta'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+                    np.linalg.norm(rsdelta,ord=2)
+            evds['reg_S_laplacian'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+                    np.linalg.norm(rslap,ord=2)
+        return evds
 
 # ---------------------------------------------------------------------
 # Stuff for organizing each stage of the run
@@ -932,7 +969,7 @@ def _dir(dirname):
     return dirname
 
 
-def _add_map_fields(ds,beta):
+def _add_map_fields(ds,beta,doRegularizeDebug):
     """Helper routine to define some container fields
 
     """
@@ -941,7 +978,7 @@ def _add_map_fields(ds,beta):
 
     # Recompute eigenvalues
     ds['Dorig'] = ds['D'].copy()
-    ds['D'] = ds.beta**2 * ds.Dorig 
+    ds['D'] = ds.beta**2 * ds.Dorig
     ds['Dinv'] = ds.D / (1+ ds.D)
 
     bfn = ds['beta']*ds['Fxy']*ds['Nx']
@@ -951,6 +988,13 @@ def _add_map_fields(ds,beta):
     ds['misfits_normalized'] = xr.zeros_like(bfn*ds['obs_ind'])
     ds['misfit_norm'] = xr.zeros_like(bfn)
     ds['misfits_model_space'] = xr.zeros_like(bfn*ds['ctrl_ind'])
+
+    if doRegularizeDebug:
+        # extra on the regularization term
+        ds['reg_delta'] = xr.zeros_like(bfn)
+        ds['reg_laplacian'] = xr.zeros_like(bfn)
+        ds['reg_S_delta'] = xr.zeros_like(bfn)
+        ds['reg_S_laplacian'] = xr.zeros_like(bfn)
 
     # --- some descriptive attributes
     ds['beta'].attrs = {'label':r'$\beta$','description':'regularization parameter'}
