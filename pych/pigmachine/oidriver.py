@@ -70,6 +70,10 @@ class OIDriver:
         ----------
         experiment : str
             an identifying name for the experiment
+            this should identify:
+            1. the observable quantity
+            2. the observation set used (e.g. just obs from one year, or multiple?)
+            3. the observational uncertainty profile used
         stage : str
             the stage to start or pickup at when this is called
 
@@ -113,6 +117,8 @@ class OIDriver:
             (vertical, meridional, zonal)
         m0 : xarray DataArray
             with the initial guess
+            Note: must have attribute "standard_name" with identifying name, e.g.
+            m0.attrs['standard_name'] = 'zeros'
         ctrl_ds : xarray DataArray
             dataset with the FULL coordinate dataset, for evaluating the laplacian
         obs_mask : xarray DataArray
@@ -127,6 +133,11 @@ class OIDriver:
         kwargs
             Are passed to override the default class attributes
         """
+
+        if 'standard_name' not in m0.attrs.keys():
+            raise TypeError('No identifying name for initial guess, add as standard_name in DataArray attributes')
+        if m0.attrs['standard_name']=='':
+            raise TypeError('Blank name for initial guess, add something useful as standard_name in DataArray attributes')
 
         # --- Add tmp netcdf directory
         dirs['nctmp'] = dirs['netcdf']+'/tmp'
@@ -183,12 +194,14 @@ class OIDriver:
         modeldims=list(myctrl['mymodel'].dims)
         obsdims = list(myobs['obs_mask'].dims)
 
+        # --- Name for final stages, where initial guess matters
+        self.expWithInitGuess = self.experiment+'_'+myctrl.m0.attrs['standard_name']
+
         # --- Carry these things around
         self.dirs = dirs
         self.dsim = dsim
         self.mymodel = myctrl['mymodel']
         self.cds = cds
-
 
         self.ctrl = rp.ControlField('ctrl',self.mymodel.sortby(modeldims))
         self.obs = rp.ControlField('obs',
@@ -226,7 +239,7 @@ class OIDriver:
             self.pickup()
             eval(f'self.{stage}()')
         else:
-            if stage != 'start_experiment' and stage is not None:
+            if stage is not None:
                 raise NameError(f'Incorrectly specified stage: {stage}.\n'+\
                     'Available possibilities are: '+str(possible_stages))
 
@@ -420,7 +433,7 @@ class OIDriver:
         atts = evds.attrs.copy()
         evds = xr.merge([evds,newds])
         evds.attrs = atts
-        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_proj.nc')
 
         # --- Pass on to next stage
         self.submit_next_stage(next_stage='basis_projection_two',
@@ -439,7 +452,7 @@ class OIDriver:
 
         ... send to next stage
         """
-        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj.nc')
         evds['filternorm'].load();
         evds['F'].load();
 
@@ -502,7 +515,7 @@ class OIDriver:
         ... send to next stage
         """
 
-        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj1.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj.nc')
         evds['Q'].load();
         dslistNx = []
         for nx in self.NxList:
@@ -672,7 +685,7 @@ class OIDriver:
                                          run_suff='map')
                 jid_list.append(jid)
 
-        evds.to_netcdf(self.dirs['nctmp']+f'/{self.experiment}_map.nc')
+        evds.to_netcdf(self.dirs['nctmp']+f'/{self.expWithInitGuess}_map.nc')
         self.submit_next_stage(next_stage='save_the_map',
                                jid_depends=jid_list,mysim=sim)
 
@@ -690,7 +703,7 @@ class OIDriver:
             5. be like jesus (save it!)
 
         """
-        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_map.nc')
+        evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.expWithInitGuess}_map.nc')
         evds['filternorm'].load();
 
         for nx in self.NxList:
@@ -757,7 +770,7 @@ class OIDriver:
                         evds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
                             misfits_model_space
 
-        evds.to_netcdf(self.dirs['netcdf']+f'/{self.experiment}_map.nc')
+        evds.to_netcdf(self.dirs['netcdf']+f'/{self.expWithInitGuess}_map.nc')
 
     def regular_debug_plots(self,evds,Nx,Fxy,beta,m_update,C,K):
 
@@ -883,9 +896,9 @@ class OIDriver:
         """Write a bash script for the next experiment stage
         """
         file_contents = '#!/bin/bash\n\n' +\
-            '#SBATCH -J oidriver\n' +\
-            '#SBATCH -o oidriver.%j.out\n' +\
-            '#SBATCH -e oidriver.%j.err\n' +\
+            f'#SBATCH -J {stage}\n' +\
+            f'#SBATCH -o {stage}.%j.out\n' +\
+            f'#SBATCH -e {stage}.%j.err\n' +\
             '#SBATCH -N 1\n' +\
             f'#SBATCH -n {mysim.procs_per_node}\n' +\
             f'#SBATCH -p {mysim.queue_name}\n' +\
@@ -911,50 +924,48 @@ class OIDriver:
         """return read_dir, write_dir, and run_dir for a specific stage"""
 
         if stage == 'range_approx_one':
-            read_str = None
+            read_str  = None
             write_str = 'matern'
 
         elif stage == 'range_approx_two':
-            read_str = 'matern'
-            write_str = 'range2'
+            read_str  = 'matern'
+            write_str = self.experiment + '.range2'
 
         elif stage == 'basis_projection_one':
-            read_str = 'range2'
-            write_str = 'project1'
+            read_str  = self.experiment + '.range2'
+            write_str = self.experiment + '.project1'
 
         elif stage == 'basis_projection_two':
-            read_str = 'project1'
-            write_str = 'project2'
+            read_str  = self.experiment + '.project1'
+            write_str = self.experiment + '.project2'
 
         elif stage == 'do_the_evd':
-            read_str = 'project2'
+            read_str  = self.experiment + '.project2'
             write_str = None
 
         elif stage == 'prior_to_misfit':
-            read_str = 'project2'
-            write_str = 'p2m'
+            read_str = self.experiment + '.project2'
+            write_str = self.expWithInitGuess + '.p2m'
 
         elif stage == 'solve_for_map':
-            read_str = 'p2m'
-            write_str = 'map'
+            read_str = self.expWithInitGuess + '.p2m'
+            write_str = self.expWithInitGuess + '.map'
 
         elif stage == 'save_the_map':
-            read_str = 'map'
+            read_str = self.expWithInitGuess + '.map'
             write_str = None
 
         else:
             raise NameError(f'Unexpected stage for directories: {stage}')
 
         if read_str is not None:
-            read_suff = f'/run.{self.experiment}' if stage !='range_approx_two' else '/run'
-            read_dir = self.dirs["main_run"]+read_suff+\
-                f'.{read_str}.{nx:02}dx.{fxy:02}fxy'
+            read_suff = read_str + f'.{nx:02}dx.{fxy:02}fxy'
+            read_dir = self.dirs["main_run"] + '/run.' + read_suff
         else:
             read_dir = None
 
         if write_str is not None:
-            write_suff = self.experiment +'.' if stage != 'range_approx_one' else ''
-            write_suff += f'{write_str}.{nx:02}dx.{fxy:02}fxy'
+            write_suff = write_str + f'.{nx:02}dx.{fxy:02}fxy'
             write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
             run_dir   = self.dirs['main_run']+'/run.'+write_suff
         else:
