@@ -8,7 +8,7 @@ def get_nice_attrs(fldname):
     'xi': {
         'label': r'$\xi$',
         'description': 'factor amplifying correlation lengths in horizontal, '+\
-                       'relative to vertical' 
+                       'relative to vertical'},
     'sigma': {
         'label': r'$\sigma$',
         'description': 'parameter uncertainty, standard deviation'},
@@ -83,7 +83,7 @@ def get_nice_attrs(fldname):
                        'weighted by prior uncertainty'},
     'misfits': {
         'label': r'$F\mathbf{m}_{MAP} - \mathbf{d}$',
-        'description': 'Difference between MAP solution and observations'}
+        'description': 'Difference between MAP solution and observations'},
     'misfits_normalized': {
         'label': r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}}$',
         'description': 'Difference between MAP solution and observations, '+\
