@@ -25,6 +25,7 @@ import rosypig as rp
 
 from . import matern
 from .. import pigmachine as pm
+from .notation import get_nice_attrs
 
 class OIDriver:
     """Defines the driver for getting an Eigenvalue decomposition
@@ -54,10 +55,10 @@ class OIDriver:
     n_rand = 1000
     dataprec = 'float64'
     NxList  = [5, 10, 15, 20, 30, 40]
-    FxyList = [0.5,   1,   2]#,   5]
+    xiList  = [0.5,   1,   2]#,   5]
     sorList = [1.8, 1.6, 1.3]#, 1.2]
-    n_beta = 9
-    beta = 10**np.linspace(-5,-3,n_beta)
+    n_sigma = 9
+    sigma = 10**np.linspace(-5,-3,n_sigma)
     smoothOpNb = 1
     smooth2DDims = 'yzw'
     jacobi_max_iters = 20000
@@ -223,11 +224,11 @@ class OIDriver:
         # --- If kwargs exist, use to rewrite default attributes
         if kwargs is not None:
             for key,val in kwargs.items():
-                if key == 'beta' and isinstance(val,list):
+                if key == 'sigma' and isinstance(val,list):
                     val = np.array(val)
                 self.__dict__[key] = val
 
-        self.sordict = dict(zip(self.FxyList,self.sorList))
+        self.sordict = dict(zip(self.xiList,self.sorList))
 
     def _send_to_stage(self,stage):
         possible_stages = ['range_approx_one','range_approx_two', 
@@ -259,19 +260,19 @@ class OIDriver:
         ... pass to the next step
         """
         jid_list = []
-        for nx in self.NxList:
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            for xi in self.xiList:
 
-                _, write_dir, run_dir = self._get_dirs('range_approx_one',nx,fxy)
+                _, write_dir, run_dir = self._get_dirs('range_approx_one',Nx,xi)
 
-                self.smooth_writer(write_dir, Fxy=fxy, smooth_apply=False,
+                self.smooth_writer(write_dir, xi=xi, smooth_apply=False,
                                     num_inputs=self.n_rand)
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
-                                    Nx=nx,mymask=self.ctrl.mask,
-                                    xdalike=self.mymodel,Fxy=fxy) 
+                                    Nx=Nx,mymask=self.ctrl.mask,
+                                    xdalike=self.mymodel,xi=xi) 
 
-                sim = rp.Simulation(name=f'{nx:02}dx_{fxy:02}fxy_oi_ra1',
+                sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_oi_ra1',
                                  run_dir=run_dir,
                                  obs_dir=write_dir,
                                  **self.dsim)
@@ -302,12 +303,12 @@ class OIDriver:
 
         jid_list = []
         dslistNx = []
-        for nx in self.NxList:
-            dslistFxy = []
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            dslistXi = []
+            for xi in self.xiList:
 
                 # --- Prepare reading and writing
-                read_dir, write_dir, run_dir = self._get_dirs('range_approx_two',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('range_approx_two',Nx,xi)
 
                 # --- Read in samples and filternorm
                 ds = matern.get_matern_dataset(read_dir,
@@ -323,10 +324,10 @@ class OIDriver:
                                               n_small=self.n_small,
                                               n_over=self.n_over)
 
-                # Add Nx and Fxy dimensions
+                # Add Nx and xi dimensions
                 evds['filternorm'] = rp.to_xda(self.ctrl.pack(ds['filternorm']),evds,
-                                               expand_dims={'Nx':nx,'Fxy':fxy})
-                dslistFxy.append(evds)
+                                               expand_dims={'Nx':Nx,'xi':xi})
+                dslistXi.append(evds)
 
                 # --- Now apply obserr & filternorm weighted interpolation operator
                 smooth2DInput = []
@@ -340,16 +341,16 @@ class OIDriver:
 
                 # --- Write matern operator and submit job
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
+                self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=nx,Fxy=fxy,
+                                   Nx=Nx,xi=xi,
                                    write_dir=write_dir,
                                    run_dir=run_dir,
                                    run_suff='ra2')
                 jid_list.append(jid)
 
             # --- Keep appending the dataset with filternorm for safe keeping
-            dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
+            dslistNx.append(xr.concat(dslistXi,dim='xi'))
 
         newds = xr.concat(dslistNx,dim='Nx')
         newds['F'] = rp.to_xda(self.F,newds)
@@ -380,12 +381,12 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_filternormInterp.nc')
         jid_list=[]
         dslistNx = []
-        for nx in self.NxList:
-            dslistFxy = []
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            dslistXi = []
+            for xi in self.xiList:
     
                 # --- Prepare read and write
-                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_one',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_one',Nx,xi)
 
                 # --- Read samples from last stage, form orthonormal basis
                 ds = matern.get_matern_dataset(read_dir,
@@ -408,9 +409,9 @@ class OIDriver:
         
                 # prep for saving
                 tmpds = xr.Dataset()
-                tmpds['Y'] = rp.to_xda(Y,evds,expand_dims={'Nx':nx,'Fxy':fxy})
-                tmpds['Q'] = rp.to_xda(Q,evds,expand_dims={'Nx':nx,'Fxy':fxy})
-                dslistFxy.append(tmpds)
+                tmpds['Y'] = rp.to_xda(Y,evds,expand_dims={'Nx':Nx,'xi':xi})
+                tmpds['Q'] = rp.to_xda(Q,evds,expand_dims={'Nx':Nx,'xi':xi})
+                dslistXi.append(tmpds)
         
                 # --- Write out Q and submit job
                 smooth2DInput = []
@@ -419,16 +420,16 @@ class OIDriver:
                     smooth2DInput.append(q)
 
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
+                self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=nx,Fxy=fxy,
+                                   Nx=Nx,xi=xi,
                                    write_dir=write_dir,
                                    run_dir=run_dir,
                                    run_suff='proj1')
                 jid_list.append(jid)
         
             # get those datasets
-            dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
+            dslistNx.append(xr.concat(dslistXi,dim='xi'))
         newds = xr.concat(dslistNx,dim='Nx')
         atts = evds.attrs.copy()
         evds = xr.merge([evds,newds])
@@ -457,11 +458,11 @@ class OIDriver:
         evds['F'].load();
 
         jid_list = []
-        for nx in self.NxList:
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            for xi in self.xiList:
 
                 # --- Prepare directories
-                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_two',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('basis_projection_two',Nx,xi)
             
                 # --- Read output from last stage, apply obserr,filternorm weight op
                 ds = matern.get_matern_dataset(read_dir,
@@ -474,7 +475,7 @@ class OIDriver:
 
                 # Apply operator
                 smooth2DInput = []
-                filternorm = evds['filternorm'].sel(Nx=nx,Fxy=fxy).values
+                filternorm = evds['filternorm'].sel(Nx=Nx,xi=xi).values
                 F_norm = evds['F'].values*filternorm
                 FtWF = (F_norm.T * self.obs_var_inv) @ F_norm
                 for s in ds.sample.values:
@@ -485,9 +486,9 @@ class OIDriver:
 
                 # --- Write out and submit next application
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
-                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=self.n_rand)
+                self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=nx,Fxy=fxy,
+                                   Nx=Nx,xi=xi,
                                    write_dir=write_dir,
                                    run_dir=run_dir,
                                    run_suff='proj2')
@@ -508,9 +509,9 @@ class OIDriver:
 
             1. read in w_i to form the columns of the matrix W
             2. compute B = Q^T W = Q^T M Q
-            3. find the eigenvalue decomposition of B: B = UDU^T
+            3. find the eigenvalue decomposition of B: B = VDV^T
             4. get eigenpairs in order of descending eigenvalues
-            5. approximate eigenvectors of M are U <- QU
+            5. approximate eigenvectors of M are V <- QV
 
         ... send to next stage
         """
@@ -518,12 +519,12 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_proj.nc')
         evds['Q'].load();
         dslistNx = []
-        for nx in self.NxList:
-            dslistFxy = []
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            dslistXi = []
+            for xi in self.xiList:
 
                 # --- Prepare directories
-                read_dir, _, _ = self._get_dirs('do_the_evd',nx,fxy)
+                read_dir, _, _ = self._get_dirs('do_the_evd',Nx,xi)
 
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -540,25 +541,25 @@ class OIDriver:
                 HmQ = np.array(HmQ).T
 
                 # Apply Q^T
-                Q = evds['Q'].sel(Nx=nx,Fxy=fxy).values
+                Q = evds['Q'].sel(Nx=Nx,xi=xi).values
                 B = Q.T @ HmQ
 
                 # Do the EVD
-                D,Uhat = linalg.eigh(B)
+                D,Vhat = linalg.eigh(B)
 
                 # eigh returns in ascending order, reverse
                 D = D[::-1]
-                Uhat = Uhat[:,::-1]
+                Vhat = Vhat[:,::-1]
 
-                U = Q @ Uhat
+                V = Q @ Vhat
 
                 tmpds = xr.Dataset()
-                tmpds['U'] = rp.to_xda(U,evds,expand_dims={'Nx':nx,'Fxy':fxy})
-                tmpds['D'] = rp.to_xda(D,evds,expand_dims={'Nx':nx,'Fxy':fxy})
-                dslistFxy.append(tmpds)
+                tmpds['V'] = rp.to_xda(V,evds,expand_dims={'Nx':Nx,'xi':xi})
+                tmpds['D'] = rp.to_xda(D,evds,expand_dims={'Nx':Nx,'xi':xi})
+                dslistXi.append(tmpds)
 
             # --- Continue saving eigenvalues
-            dslistNx.append(xr.concat(dslistFxy,dim='Fxy'))
+            dslistNx.append(xr.concat(dslistXi,dim='xi'))
 
         newds = xr.concat(dslistNx,dim='Nx')
         atts = evds.attrs.copy()
@@ -574,11 +575,11 @@ class OIDriver:
         """Optional to re-run this from the last stage with another initial guess
         Given the eigenvalue decomposition of 
 
-            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1} = UDU^T
+            M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1} = VDV^T
 
         Start computing the MAP point:
 
-            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+            m* = m_0 + P^{1/2} (I-VD_{inv}V^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
         for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
             P^{1/2} = sigma  X A^{-1}
 
@@ -599,20 +600,20 @@ class OIDriver:
         misfit2model = evds['F'].T.values @ (self.obs_var_inv * initial_misfit)
 
         jid_list = []
-        for nx in self.NxList:
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            for xi in self.xiList:
 
                 # --- Prepare directories
-                read_dir, write_dir, run_dir = self._get_dirs('prior_to_misfit',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('prior_to_misfit',Nx,xi)
 
                 # --- Apply prior^T/2
-                filternorm = evds['filternorm'].sel(Nx=nx,Fxy=fxy)
+                filternorm = evds['filternorm'].sel(Nx=Nx,xi=xi)
                 smooth2DInput = self.ctrl.unpack(filternorm*misfit2model)
 
-                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=1)
+                self.smooth_writer(write_dir, xi=xi, num_inputs=1)
                 jid,sim = self.submit_matern( \
                                     fld=smooth2DInput,
-                                    Nx=nx,Fxy=fxy,
+                                    Nx=Nx,xi=xi,
                                     write_dir=write_dir,
                                     run_dir=run_dir,
                                     run_suff='p2m')
@@ -627,14 +628,14 @@ class OIDriver:
 
         Continue computing the MAP point:
 
-            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+            m* = m_0 + P^{1/2} (I-VD_{inv}V^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
         for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
             P^{1/2} = sigma  X A^{-1}
 
             1. read in z_i from previous step: z_i = A^{-1}XF^T \Gamma_{obs}^{1/2}( d - Fm_0)
-            2. Compute: iudu = (I - U D_{inv} U^T) sigma  z_i
+            2. Compute: ivdv = (I - V D_{inv} V^T) sigma  z_i
             2. Pass to MITgcm to solve for w_i:
-                A w_i = iudu
+                A w_i = ivdv
 
         ... pass to final stage...
         """
@@ -642,17 +643,17 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
 
-        evds = _add_map_fields(evds,self.beta,self.doRegularizeDebug)
+        evds = _add_map_fields(evds,self.sigma,self.doRegularizeDebug)
 
         jid_list = []
-        for nx in self.NxList:
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            for xi in self.xiList:
 
                 # --- Prepare directories
-                read_dir, write_dir, run_dir = self._get_dirs('solve_for_map',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('solve_for_map',Nx,xi)
 
                 # --- Possibly use lower dimensional subspace and get arrays
-                U = evds['U'].sel(Nx=nx,Fxy=fxy).values[:,:self.n_small]
+                V = evds['V'].sel(Nx=Nx,xi=xi).values[:,:self.n_small]
 
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -664,22 +665,22 @@ class OIDriver:
                 prior_misfit2model = self.ctrl.pack(ds['ginv'])
 
                 smooth2DInput = []
-                for b in self.beta:
+                for s in self.sigma:
         
                     # --- Possibly account for lower dimensional subspace
-                    Dinv = evds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values[:self.n_small]
+                    Dinv = evds['Dinv'].sel(Nx=Nx,xi=xi,sigma=s).values[:self.n_small]
 
-                    # --- Apply (I-UDU^T)
-                    udu = U @ ( Dinv * ( U.T @ prior_misfit2model))
-                    iudu = prior_misfit2model - udu
-                    iudu = self.ctrl.unpack(iudu)
-                    smooth2DInput.append(iudu)
+                    # --- Apply (I-VDV^T)
+                    vdv = V @ ( Dinv * ( V.T @ prior_misfit2model))
+                    ivdv = prior_misfit2model - vdv
+                    ivdv = self.ctrl.unpack(ivdv)
+                    smooth2DInput.append(ivdv)
 
                 # --- Apply prior half
-                smooth2DInput = xr.concat(smooth2DInput,dim='beta')
-                self.smooth_writer(write_dir, Fxy=fxy, num_inputs=len(self.beta))
+                smooth2DInput = xr.concat(smooth2DInput,dim='sigma')
+                self.smooth_writer(write_dir, xi=xi, num_inputs=len(self.sigma))
                 jid,sim = self.submit_matern(fld=smooth2DInput,
-                                         Nx=nx,Fxy=fxy,
+                                         Nx=Nx,xi=xi,
                                          write_dir=write_dir,
                                          run_dir=run_dir,
                                          run_suff='map')
@@ -692,11 +693,11 @@ class OIDriver:
     def save_the_map(self):
         """Finish computing the MAP point:
 
-            m* = m_0 + P^{1/2} (I-UD_{inv}U^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
+            m* = m_0 + P^{1/2} (I-VD_{inv}V^T) P^{T/2} F^T \Gamma_{obs}^{1/2}( d - Fm_0)
         for initial guess m_0, and prior covariance given by P = P^{1/2}P^{T/2}, and
             P^{1/2} = sigma  X A^{-1}
 
-            1. read in w_i from previous step: w_i = A^{-1}(I - UD_{inv}U^T) z_i
+            1. read in w_i from previous step: w_i = A^{-1}(I - VD_{inv}V^T) z_i
             2. compute: m_update= sigma^2 Xw_i
             3. m_map = m0 + m_update
             4. compute misfits of every flavor
@@ -706,33 +707,33 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.expWithInitGuess}_map.nc')
         evds['filternorm'].load();
 
-        for nx in self.NxList:
-            for fxy in self.FxyList:
+        for Nx in self.NxList:
+            for xi in self.xiList:
 
                 # --- Prepare directories
-                read_dir, write_dir, run_dir = self._get_dirs('save_the_map',nx,fxy)
+                read_dir, write_dir, run_dir = self._get_dirs('save_the_map',Nx,xi)
 
                 # --- Get arrays
-                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=nx,Fxy=fxy))
+                filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=Nx,xi=xi))
                 filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
 
-                C,K = matern.get_matern(Nx=nx,mymask=self.ctrl.mask,Fxy=fxy)
+                C,K = matern.get_matern(Nx=Nx,mymask=self.ctrl.mask,xi=xi)
 
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
                                                xdalike=self.mymodel,
-                                               sample_num=np.arange(len(self.beta)),
+                                               sample_num=np.arange(len(self.sigma)),
                                                read_filternorm=False)
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
-                for s,b in enumerate(self.beta):
+                for i,s in enumerate(self.sigma):
 
-                    m_update = (b**2)*filternorm*ds['ginv'].sel(sample=s)
+                    m_update = (s**2)*filternorm*ds['ginv'].isel(sample=i)
                     mmap = self.m0 + self.ctrl.pack(m_update)
 
                     # --- Compute m_map - m0, and weighted version
                     dm = filterstd*m_update
-                    dm_normalized = (b**-1) * rp.apply_matern_2d( \
+                    dm_normalized = (s**-1) * rp.apply_matern_2d( \
                                                 fld_in=dm,
                                                 mask3D=self.cds.maskC,
                                                 mask2D=self.ctrl.mask,
@@ -742,14 +743,14 @@ class OIDriver:
 
                     dm_normalized = rp.to_xda(self.ctrl.pack(dm_normalized),evds)
                     with xr.set_options(keep_attrs=True):
-                        evds['m_map'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['m_map'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                                 rp.to_xda(mmap,evds)
-                        evds['reg_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['reg_norm'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                             np.linalg.norm(dm_normalized,ord=2)
 
                     if self.doRegularizeDebug:
                         evds = self.regular_debug_plots(evds=evds, \
-                                Nx=nx,Fxy=fxy,beta=b,m_update=m_update,
+                                Nx=Nx,xi=xi,sigma=s,m_update=m_update,
                                 C=C,K=K)
 
 
@@ -761,59 +762,59 @@ class OIDriver:
                                             evds['F'].T.values @ self.obs_mean !=0)
 
                     with xr.set_options(keep_attrs=True):
-                        evds['misfits'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['misfits'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                                 rp.to_xda(misfits,evds)
-                        evds['misfits_normalized'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['misfits_normalized'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                             rp.to_xda(self.obs_std_inv * misfits,evds)
-                        evds['misfit_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['misfit_norm'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                             np.linalg.norm(self.obs_std_inv * misfits,ord=2)
-                        evds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
+                        evds['misfits_model_space'].loc[{'sigma':s,'xi':xi,'Nx':Nx}] = \
                             misfits_model_space
 
         evds.to_netcdf(self.dirs['netcdf']+f'/{self.expWithInitGuess}_map.nc')
 
-    def regular_debug_plots(self,evds,Nx,Fxy,beta,m_update,C,K):
+    def regular_debug_plots(self,evds,Nx,xi,sigma,m_update,C,K):
 
         # --- Extra regularization terms
         var = matern.calc_variance(Nx=Nx) 
         SHalfmat = filterstd / np.sqrt(var)
         dm = filterstd*m_update
-        rlap = (beta**-1)*rp.apply_laplacian_2d( \
+        rlap = (sigma**-1)*rp.apply_laplacian_2d( \
                 fld_in = dm,
                 mask3D=self.cds.maskC,
                 mask2D=self.ctrl.mask,
                 ds=self.cds,
                 Kux=None,Kvy=K['vy'],Kwz=K['wz'])
-        rdelta =(beta**-1)* C['delta'] * dm
-        rslap = (beta**-1)*rp.apply_laplacian_2d( \
+        rdelta =(sigma**-1)* C['delta'] * dm
+        rslap = (sigma**-1)*rp.apply_laplacian_2d( \
                 fld_in = SHalfmat*m_update,
                 mask3D=self.cds.maskC,
                 mask2D=self.ctrl.mask,
                 ds=self.cds,
                 Kux=None,Kvy=K['vy'],Kwz=K['wz'])
-        rsdelta = (beta**-1)*C['delta'] * (SHalfmat * m_update)
+        rsdelta = (sigma**-1)*C['delta'] * (SHalfmat * m_update)
         with xr.set_options(keep_attrs=True):
-            evds['reg_delta'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+            evds['reg_delta'].loc[{'sigma':sigma,'xi':xi,'Nx':Nx}]= \
                     np.linalg.norm(rdelta,ord=2)
-            evds['reg_laplacian'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+            evds['reg_laplacian'].loc[{'sigma':sigma,'xi':xi,'Nx':Nx}]= \
                     np.linalg.norm(rlap,ord=2)
-            evds['reg_S_delta'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+            evds['reg_S_delta'].loc[{'sigma':sigma,'xi':xi,'Nx':Nx}]= \
                     np.linalg.norm(rsdelta,ord=2)
-            evds['reg_S_laplacian'].loc[{'beta':beta,'Fxy':Fxy,'Nx':Nx}]= \
+            evds['reg_S_laplacian'].loc[{'sigma':sigma,'xi':xi,'Nx':Nx}]= \
                     np.linalg.norm(rslap,ord=2)
         return evds
 
 # ---------------------------------------------------------------------
 # Stuff for organizing each stage of the run
 # ---------------------------------------------------------------------
-    def smooth_writer(self,write_dir,Fxy,smooth_apply=True,num_inputs=1000):
+    def smooth_writer(self,write_dir,xi,smooth_apply=True,num_inputs=1000):
         """write the data.smooth file
         """
         ndims = len(self.mymodel.dims)
         smooth = f'smooth{ndims}D'
         alg = 'matern'
         alg = alg if not smooth_apply else alg+'apply'
-        sor = self.sordict[Fxy]
+        sor = self.sordict[xi]
         file_contents = ' &SMOOTH_NML\n'+\
             f' {smooth}Filter({self.smoothOpNb})=1,\n'+\
             f' {smooth}Dims({self.smoothOpNb})=\'{self.smooth2DDims}\',\n'+\
@@ -828,7 +829,7 @@ class OIDriver:
 
     def submit_matern(self,
                       fld,
-                      Nx,Fxy,
+                      Nx,xi,
                       write_dir,run_dir,
                       run_suff):
         """Use the MITgcm to smooth a small number of fields, wait for result
@@ -837,7 +838,7 @@ class OIDriver:
         ------
         fld : xarray DataArray
             with possibly multiple records,
-        Nx, Fxy : int
+        Nx, xi : int
             specifies the prior
         write_dir, run_dir : str
             telling the simulation where to do stuff
@@ -851,8 +852,8 @@ class OIDriver:
         wrmds(fname,arr=fld,dataprec=self.dataprec,nrecords=nrecs)
         matern.write_matern(write_dir,
                  smoothOpNb=self.smoothOpNb,Nx=Nx,mymask=self.ctrl.mask,
-                 xdalike=self.mymodel,Fxy=Fxy)
-        sim = rp.Simulation(name=f'{Nx:02}dx_{Fxy:02}fxy_{run_suff}',
+                 xdalike=self.mymodel,xi=xi)
+        sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_{run_suff}',
                             run_dir=run_dir,
                             obs_dir=write_dir,**self.dsim)
 
@@ -920,7 +921,7 @@ class OIDriver:
 # ----
 # Helpers
 # -----
-    def _get_dirs(self,stage,nx,fxy):
+    def _get_dirs(self,stage,Nx,xi):
         """return read_dir, write_dir, and run_dir for a specific stage"""
 
         if stage == 'range_approx_one':
@@ -959,13 +960,13 @@ class OIDriver:
             raise NameError(f'Unexpected stage for directories: {stage}')
 
         if read_str is not None:
-            read_suff = read_str + f'.{nx:02}dx.{fxy:02}fxy'
+            read_suff = read_str + f'.{Nx:02}dx.{xi:02}xi'
             read_dir = self.dirs["main_run"] + '/run.' + read_suff
         else:
             read_dir = None
 
         if write_str is not None:
-            write_suff = write_str + f'.{nx:02}dx.{fxy:02}fxy'
+            write_suff = write_str + f'.{Nx:02}dx.{xi:02}xi'
             write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
             run_dir   = self.dirs['main_run']+'/run.'+write_suff
         else:
@@ -980,19 +981,21 @@ def _dir(dirname):
     return dirname
 
 
-def _add_map_fields(ds,beta,doRegularizeDebug):
+def _add_map_fields(ds,sigma,doRegularizeDebug):
     """Helper routine to define some container fields
 
     """
 
-    ds['beta'] = xr.DataArray(beta,coords={'beta':beta},dims=('beta',))
+    # parameter uncertainty and regularization
+    ds['sigma'] = xr.DataArray(sigma,coords={'sigma':sigma},dims=('sigma',))
+    ds['betaSq'] = ds.sigma**-2
 
     # Recompute eigenvalues
     ds['Dorig'] = ds['D'].copy()
-    ds['D'] = ds.beta**2 * ds.Dorig
+    ds['D'] = ds.sigma**2 * ds.Dorig
     ds['Dinv'] = ds.D / (1+ ds.D)
 
-    bfn = ds['beta']*ds['Fxy']*ds['Nx']
+    bfn = ds['sigma']*ds['xi']*ds['Nx']
     ds['m_map'] = xr.zeros_like(bfn*ds['ctrl_ind'])
     ds['reg_norm'] = xr.zeros_like(bfn)
     ds['misfits'] = xr.zeros_like(bfn*ds['obs_ind'])
@@ -1008,21 +1011,8 @@ def _add_map_fields(ds,beta,doRegularizeDebug):
         ds['reg_S_laplacian'] = xr.zeros_like(bfn)
 
     # --- some descriptive attributes
-    ds['beta'].attrs = {'label':r'$\beta$','description':'regularization parameter'}
-    ds['m_map'].attrs = {'label':r'$\mathbf{m}_{MAP}$',
-            'description':r'Maximum a Posteriori solution for control parameter $\mathbf{m}$'}
-    ds['reg_norm'].attrs = {'label':r'$||\mathbf{m}_{MAP} - \mathbf{m}_0||_{\Gamma_{prior}^{-1}}$',
-            'label2':r'$||\Gamma_{prior}^{-1/2}(\mathbf{m}_{MAP} - \mathbf{m}_0)||_2$',
-            'description':'Normed difference between initial and MAP solution, weighted by prior uncertainty'}
-    ds['misfits'].attrs = {'label':r'$F\mathbf{m}_{MAP} - \mathbf{d}$',
-            'description':'Difference between MAP solution and observations'}
-    ds['misfits_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}}$',
-            'description':'Difference between MAP solution and observations, normalized by observation uncertainty'}
-    ds['misfit_norm'].attrs = {'label':r'$||F\mathbf{m}_{MAP} - \mathbf{d}||_{\Gamma_{obs}^{-1}}$',
-            'label2':r'$||\Gamma_{obs}^{-1/2}(F\mathbf{m}_{MAP} - \mathbf{d})||_2$',
-            'description':'Normed difference between MAP solution and observations, weighted by observational uncertainty'}
-    ds['misfits_model_space'].attrs = {'label':r'$\mathbf{m}_{MAP} - F^T\mathbf{d}$',
-            'description':'Difference between MAP solution and observations, in model domain'}
+    for fld in ds.keys():
+        ds[fld].attrs = get_nice_attrs(fld)
 
     return ds
 

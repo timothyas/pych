@@ -13,433 +13,17 @@ from MITgcmutils import wrmds,rdmds
 
 from rosypig import to_xda, apply_matern_2d, inverse_matern_2d,Simulation
 from .matern import get_matern,write_matern,write_matern,get_matern_dataset
+from .notation import get_nice_attrs
 from .io import read_mds
 
 def get_beta_best(ds):
-    ds['beta_best'] = xr.zeros_like(ds.Fxy*ds.Nx)
+    ds['beta_best'] = xr.zeros_like(ds.xi*ds.Nx)
     bbest = ds.beta.broadcast_like(ds.misfit_norm).where(ds.misfit_norm==ds.misfit_norm.min(['beta']))
     for Nx in ds.Nx.values:
-        for Fxy in ds.Fxy.values:
-            ds.beta_best.loc[{'Nx':Nx,'Fxy':Fxy}]= float(bbest.sel(Nx=Nx,Fxy=Fxy).dropna('beta').values)
+        for xi in ds.xi.values:
+            ds.beta_best.loc[{'Nx':Nx,'xi':xi}]= float(bbest.sel(Nx=Nx,xi=xi).dropna('beta').values)
     ds['beta_best'].attrs = {'label':r'$\beta_{best}$'}
 
-def solve_for_map_2(ds, m0, obs_mean, obs_std,
-                  m_packer, obs_packer, mask3D, mds,
-                  n_small=None,xdalike=None,dsim=None,dirs=None):
-    """Solve for m_MAP
-
-    $m_{MAP} = H^{-1}(F^T\Gamma_{obs}^{-1}d + \Gamma_{prior}^{-1}m_0)$
-
-    Parameters
-    ----------
-    ds : xarray Dataset
-        containing the EVD of the misfit Hessian, and interpolation operator F
-        assumed to have Nx, Fxy, and beta as dimensions
-    m0 : xarray DataArray
-        with the initial guess for the parameter field
-    obs_mean, obs_std : xarray DataArray
-        observational data values (mean) and uncertainty (standard deviation)
-    m_packer, obs_packer : rosypig ControlField or Observable
-        with pack/unpack routines and mask defining the extent of the field
-        in the domain
-    mask3D : xarray DataArray
-        this contains m_packer mask, see rosypig.apply_matern_2d
-    mds : xarray Dataset
-        containing the grid information for the domain m lives in
-    n_small : int, optional
-        only use the first n_small eigenmodes while applying the inverse Hessian
-    xdalike : xarray DataArray, optional
-        for writing out fields, essentially to reindex the vertical coordinate...
-    dsim, dirs : dict, optional
-        dictionaries to provide to submit prior application via MITgcm rather than
-        here
-
-    Returns
-    -------
-    ds : xarray Dataset
-        with the MAP point (m_MAP) and all misfits to characterize solution
-    """
-
-    ds = _add_map_fields(ds)
-
-    # --- Pack some vectors
-    [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip(
-                                        [m0,obs_mean,obs_std],
-                                        [m_packer,obs_packer,obs_packer])]
-    obs_std_inv = obs_std**-1
-    obs_var_inv = obs_std**-2
-
-    # --- Compute initial misfit: F m_0 - d, and weighted versions
-    initial_misfit = obs_mean - ds['F'].values @ m0
-    with xr.set_options(keep_attrs=True):
-        ds['initial_misfit'] = to_xda(initial_misfit,ds)
-        ds['initial_misfit_normalized'] = to_xda(obs_std_inv * initial_misfit,ds)
-        ds['initial_misfit_normvar'] = to_xda(obs_var_inv * initial_misfit,ds)
-
-    # --- compute first term
-    obs2model = ds['F'].T.values @ (obs_var_inv * obs_mean)
-
-    for nx in ds.Nx.values:
-        for fxy in ds.Fxy.values:
-
-            # --- Possibly use lower dimensional subspace and get arrays
-            U = ds['U'].sel(Nx=nx,Fxy=fxy).values if n_small is None else ds['U'].sel(Nx=nx,Fxy=fxy).values[:,:n_small]
-            filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,Fxy=fxy))
-            filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
-
-            # --- second term, apply prior inverse
-            m0_normalized = filterstd*m_packer.unpack(m0)
-            m0_normalized =  apply_priorhalf_inv_yz( \
-                                        fld=m0_normalized,
-                                        Nx=nx,Fxy=fxy,
-                                        mask3D=mask3D,
-                                        mask2D=m_packer.mask,
-                                        ds=mds)
-            m0_normalized = apply_priorhalf_inv_yz( \
-                                        fld=m0_normalized,
-                                        Nx=nx,Fxy=fxy,
-                                        mask3D=mask3D,
-                                        mask2D=m_packer.mask,
-                                        ds=mds)
-            m0_normalized = m_packer.pack(filterstd*m0_normalized)
-
-            # --- Add prior weighted initial guess and normalized obs in model space
-            smooth2DInput = []
-            for b in ds.beta.values:
-                obs_and_m0 = obs2model + (b**-2)*m0_normalized
-                obs_and_m0 = m_packer.unpack(obs_and_m0).reindex_like(xdalike).values
-                smooth2DInput.append(obs_and_m0)
-
-            smooth2DInput = np.stack(smooth2DInput,axis=0)
-
-            # --- Apply prior 1/2
-            smooth2DOutput = submit_priorhalf( \
-                        fld=smooth2DInput,
-                        mymask=m_packer.mask,
-                        xdalike=xdalike,
-                        Nx=nx,Fxy=fxy,
-                        write_dir=dirs['write'],
-                        namelist_dir=dirs['namelist'],
-                        run_dir=dirs['run'],
-                        dsim=dsim)
-
-            # --- Apply (I-UDU^T)
-            smooth2DInput = []
-            for s,b in enumerate(ds.beta.values):
-
-                # --- Possibly account for lower dimensional subspace
-                Dinv = ds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values
-                Dinv = Dinv if n_small is None else Dinv[:n_small]
-
-
-                oam = m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
-
-                udu = U @ (Dinv* (U.T @ oam))
-                iudu = oam - udu
-                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
-                smooth2DInput.append(iudu)
-
-            smooth2DInput = np.stack(smooth2DInput,axis=0)
-
-            # --- Apply prior 1/2 again
-            smooth2DOutput = submit_priorhalf( \
-                        fld=smooth2DInput,
-                        mymask=m_packer.mask,
-                        xdalike=xdalike,
-                        Nx=nx,Fxy=fxy,
-                        write_dir=dirs['write'],
-                        namelist_dir=dirs['namelist'],
-                        run_dir=dirs['run'],
-                        dsim=dsim)
-            for s,b in enumerate(ds.beta.values):
-                mmap = (b**2)*m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
-        
-                # --- Compute m_map - m0, and weighted version
-                dm = filterstd*m_packer.unpack(mmap - m0)
-                dm_normalized = (b**-1) * apply_priorhalf_inv_yz( \
-                                            fld=dm,
-                                            Nx=nx,Fxy=fxy,
-                                            mask3D=mask3D,
-                                            mask2D=m_packer.mask,
-                                            ds=mds)
-                dm_normalized = to_xda(m_packer.pack(dm_normalized),ds)
-                with xr.set_options(keep_attrs=True):
-                    ds['m_map'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = to_xda(mmap,ds)
-                    ds['reg_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            np.linalg.norm(dm_normalized,ord=2)
-
-                # --- Compute misfits, and weighted version
-                misfits = ds['F'].values @ mmap - obs_mean
-                misfits_model_space = to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
-                misfits_model_space = misfits_model_space.where( \
-                                        ds['F'].T.values @ obs_mean !=0)
-
-                with xr.set_options(keep_attrs=True):
-                    ds['misfits'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            to_xda(misfits,ds)
-                    ds['misfits_normalized'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            to_xda(obs_std_inv * misfits,ds)
-                    ds['misfit_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            np.linalg.norm(obs_std_inv * misfits,ord=2)
-                    ds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            misfits_model_space
-            print(f' --- Done with Fxy = {fxy} ---')
-        print(f' --- Done with Nx = {nx} ---')
-    return ds
-def solve_for_map(ds, m0, obs_mean, obs_std,
-                  m_packer, obs_packer, mask3D, mds,
-                  n_small=None,xdalike=None,dsim=None,dirs=None):
-    """Solve for m_MAP
-
-    $m_{MAP} = m_0 + H^{-1}F^T R^{-1}(d - F m_0)$
-
-    Parameters
-    ----------
-    ds : xarray Dataset
-        containing the EVD of the misfit Hessian, and interpolation operator F
-        assumed to have Nx, Fxy, and beta as dimensions
-    m0 : xarray DataArray
-        with the initial guess for the parameter field
-    obs_mean, obs_std : xarray DataArray
-        observational data values (mean) and uncertainty (standard deviation)
-    m_packer, obs_packer : rosypig ControlField or Observable
-        with pack/unpack routines and mask defining the extent of the field
-        in the domain
-    mask3D : xarray DataArray
-        this contains m_packer mask, see rosypig.apply_matern_2d
-    mds : xarray Dataset
-        containing the grid information for the domain m lives in
-    n_small : int, optional
-        only use the first n_small eigenmodes while applying the inverse Hessian
-    xdalike : xarray DataArray, optional
-        for writing out fields, essentially to reindex the vertical coordinate...
-    dsim, dirs : dict, optional
-        dictionaries to provide to submit prior application via MITgcm rather than
-        here
-
-    Returns
-    -------
-    ds : xarray Dataset
-        with the MAP point (m_MAP) and all misfits to characterize solution
-    """
-
-    ds = _add_map_fields(ds)
-
-    # --- Pack some vectors
-    [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip(
-                                        [m0,obs_mean,obs_std],
-                                        [m_packer,obs_packer,obs_packer])]
-    obs_std_inv = obs_std**-1
-    obs_var_inv = obs_std**-2
-
-    # --- Compute initial misfit: F m_0 - d, and weighted versions
-    initial_misfit = obs_mean - ds['F'].values @ m0
-    with xr.set_options(keep_attrs=True):
-        ds['initial_misfit'] = to_xda(initial_misfit,ds)
-        ds['initial_misfit_normalized'] = to_xda(obs_std_inv * initial_misfit,ds)
-        ds['initial_misfit_normvar'] = to_xda(obs_var_inv * initial_misfit,ds)
-
-    # --- Map back to model grid and apply posterior via EVD
-    misfit_model = ds['F'].T.values @ ds['initial_misfit_normvar'].values
-
-    for nx in ds.Nx.values:
-        for fxy in ds.Fxy.values:
-
-            # --- Possibly use lower dimensional subspace and get arrays
-            U = ds['U'].sel(Nx=nx,Fxy=fxy).values if n_small is None else ds['U'].sel(Nx=nx,Fxy=fxy).values[:,:n_small]
-            filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,Fxy=fxy))
-            filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
-
-            # --- Apply prior
-            prior_misfit_model = m_packer.unpack(misfit_model)
-            smooth2DInput = prior_misfit_model.broadcast_like(ds.beta*prior_misfit_model).reindex_like(xdalike).values
-            smooth2DOutput = submit_priorhalf( \
-                                    fld=smooth2DInput,
-                                    mymask=m_packer.mask,
-                                    xdalike=xdalike,
-                                    Nx=nx,Fxy=fxy,
-                                    write_dir=dirs['write'],
-                                    namelist_dir=dirs['namelist'],
-                                    run_dir=dirs['run'],
-                                    dsim=dsim)
-            prior_misfit_model = filternorm*smooth2DOutput.isel(sample=0)
-            prior_misfit_model = m_packer.pack(prior_misfit_model)
-
-            smooth2DInput = []
-            for b in ds.beta.values:
-        
-                # --- Possibly account for lower dimensional subspace
-                Dinv = ds['Dinv'].sel(Nx=nx,Fxy=fxy,beta=b).values
-                Dinv = Dinv if n_small is None else Dinv[:n_small]
-
-                # --- Apply (I-UDU^T)
-                udu = U @ ( Dinv * ( U.T @ (b*prior_misfit_model)))
-                iudu = b*prior_misfit_model - udu
-
-                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
-                smooth2DInput.append(iudu)
-
-            # --- Apply prior half
-            smooth2DInput = np.stack(smooth2DInput,axis=0)
-            smooth2DOutput = submit_priorhalf( \
-                                fld=smooth2DInput,
-                                mymask=m_packer.mask,
-                                xdalike=xdalike,
-                                Nx=nx,Fxy=fxy,
-                                write_dir=dirs['write'],
-                                namelist_dir=dirs['namelist'],
-                                run_dir=dirs['run'],
-                                dsim=dsim)
-
-            for s,b in enumerate(ds.beta.values):
-
-                mmap = m0 + m_packer.pack(b*filternorm*smooth2DOutput.sel(sample=s))
-
-                # --- Compute m_map - m0, and weighted version
-                dm = filterstd*m_packer.unpack(mmap - m0)
-                dm_normalized = (b**-1) * apply_priorhalf_inv_yz( \
-                                            fld=dm,
-                                            Nx=nx,Fxy=fxy,
-                                            mask3D=mask3D,
-                                            mask2D=m_packer.mask,
-                                            ds=mds)
-                dm_normalized = to_xda(m_packer.pack(dm_normalized),ds)
-                with xr.set_options(keep_attrs=True):
-                    ds['m_map'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = to_xda(mmap,ds)
-                    ds['reg_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            np.linalg.norm(dm_normalized,ord=2)
-
-                # --- Compute misfits, and weighted version
-                misfits = ds['F'].values @ mmap - obs_mean
-                misfits_model_space = to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
-                misfits_model_space = misfits_model_space.where( \
-                                        ds['F'].T.values @ obs_mean !=0)
-
-                with xr.set_options(keep_attrs=True):
-                    ds['misfits'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            to_xda(misfits,ds)
-                    ds['misfits_normalized'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            to_xda(obs_std_inv * misfits,ds)
-                    ds['misfit_norm'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            np.linalg.norm(obs_std_inv * misfits,ord=2)
-                    ds['misfits_model_space'].loc[{'beta':b,'Fxy':fxy,'Nx':nx}] = \
-                            misfits_model_space
-
-            print(f' --- Done with Fxy = {fxy} ---')
-        print(f' --- Done with Nx = {nx} ---')
-    return ds
-
-def submit_priorhalf(fld,
-                     mymask,
-                     xdalike,
-                     Nx,Fxy,
-                     write_dir,namelist_dir,run_dir,
-                     dsim,
-                     smoothOpNb=1,dataprec='float64'):
-    """submit to MITgcm to apply smoothing operator ... much faster
-    """
-
-    nrecs = fld.shape[0] if fld.shape!=mymask.shape else 1
-
-    # --- Write and submit
-    if not os.path.isdir(write_dir):
-        os.makedirs(write_dir)
-    fname = f'{write_dir}/smooth2DInput{smoothOpNb:03}'
-    wrmds(fname,arr=fld,dataprec=dataprec,nrecords=nrecs)
-    write_matern(write_dir,smoothOpNb=smoothOpNb,Nx=Nx,mymask=mymask,
-                 xdalike=xdalike,Fxy=Fxy)
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        sim = Simulation(name='priorhalf',
-                         namelist_dir=namelist_dir,
-                         run_dir=run_dir,
-                         obs_dir=write_dir,**dsim)
-
-    sim.link_to_run_dir()
-    sim.write_slurm_script()
-    jid = sim.submit_slurm()
-
-    # --- Wait until done
-    doneyet = False
-    check_str = 'squeue -u $USER -ho %A --sort=S'
-    fnameout = f'{run_dir}/smooth2Dfld{smoothOpNb:03}'
-    while not doneyet:
-        pout = subprocess.run(check_str,shell=True,capture_output=True)
-        jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
-        doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
-        sleep(1)
-
-    # --- Done! Read the output
-    dsout = get_matern_dataset(run_dir,smoothOpNb=smoothOpNb,
-                               xdalike=xdalike,
-                               sample_num=np.arange(nrecs),
-                               read_filternorm=False)
-    fld_out = dsout['ginv'].reindex_like(mymask).load();
-    rmtree(sim.run_dir)
-
-    return fld_out
-
-def apply_priorhalf_inv_yz(fld,Nx,Fxy,mask3D,mask2D,ds):
-    """Apply the inverse square root of the prior covariance operator
-       just the laplace like operator no normalization
-        $\Gamma_{prior}^{-1/2}f$
-
-    Parameters
-    ----------
-    fld : xarray DataArray
-        To apply the operator to
-    Nx, Fxy, mask3D, mask2D, ds :
-        see rosypig.matern.apply_matern_2d
-
-    Returns
-    -------
-    xda : xarray DataArray
-        
-    """
-
-    C,K = get_matern(Nx=Nx,mymask=mask2D,Fxy=Fxy)
-    xda = apply_matern_2d(fld,
-                          mask3D=mask3D,
-                          mask2D=mask2D,
-                          ds=ds,
-                          delta=C['delta'],Kux=None,Kvy=K['vy'],Kwz=K['wz'])
-
-    return xda
-
-def apply_ppmh(Finterp, fld, filternorm, obs_std,
-               input_packer=None, output_packer=None):
-    """apply the prior preconditioned misfit Hessian to fld
-    (without the matern type smoothing, inverse laplacian-like operator)
-    """
-    HmTilde = get_ppmh(Finterp, filternorm, obs_std,
-                       input_packer=input_packer, output_packer=output_packer)
-
-    fld = fld.values.flatten() if input_packer is None else input_packer.pack(fld)
-    fld_out = HmTilde @ fld
-
-    return fld_out if input_packer is None else input_packer.unpack(fld_out) 
-
-
-def get_ppmh(Finterp, filternorm, obs_std,
-             input_packer=None, output_packer=None):
-    """Get the prior preconditioned misfit Hessian
-    (without the matern type smoothing, inverse laplacian-like operator)
-    """
-    if output_packer is not None:
-        obs_variance = xr.where((obs_std!=0)&(output_packer.mask),
-                                obs_std**-2, 0.)
-        obs_weight = output_packer.pack(obs_variance)
-    else:
-        obs_variance = xr.where(obs_std!=0,obs_std**-2,0.)
-        obs_weight = obs_variance.values.flatten()
-
-    if input_packer is not None:
-        F_norm = Finterp * input_packer.pack(filternorm)
-    else:
-        F_norm = Finterp * filternorm.values.flatten()
-
-    # this is the prior preconditioned misfit Hessian
-    return (F_norm.T * obs_weight) @ F_norm
 
 def interp_operator_2d( dims_in, dims_out,
                         pack_index_in=None,
@@ -547,10 +131,443 @@ def interp_operator(dim_in,dim_out):
 
     return op
 
+
+
+# -----------------------------------------------------------------------
+# Deprecated! But I don't have the heart to delete them yet...
+# -----------------------------------------------------------------------
+
+def _unpack_field(fld,packer=None):
+    if packer is not None:
+        if len(fld.shape)>1 or len(fld)!=packer.n_wet:
+            fld = packer.pack(fld)
+    else:
+        if len(fld.shape)>1:
+            fld = fld.flatten() if isinstance(fld,np.ndarray) else fld.values.flatten()
+    return fld
+
+def solve_for_map_2(ds, m0, obs_mean, obs_std,
+                  m_packer, obs_packer, mask3D, mds,
+                  n_small=None,xdalike=None,dsim=None,dirs=None):
+    """Solve for m_MAP
+
+    $m_{MAP} = H^{-1}(F^T\Gamma_{obs}^{-1}d + \Gamma_{prior}^{-1}m_0)$
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        containing the EVD of the misfit Hessian, and interpolation operator F
+        assumed to have Nx, xi, and beta as dimensions
+    m0 : xarray DataArray
+        with the initial guess for the parameter field
+    obs_mean, obs_std : xarray DataArray
+        observational data values (mean) and uncertainty (standard deviation)
+    m_packer, obs_packer : rosypig ControlField or Observable
+        with pack/unpack routines and mask defining the extent of the field
+        in the domain
+    mask3D : xarray DataArray
+        this contains m_packer mask, see rosypig.apply_matern_2d
+    mds : xarray Dataset
+        containing the grid information for the domain m lives in
+    n_small : int, optional
+        only use the first n_small eigenmodes while applying the inverse Hessian
+    xdalike : xarray DataArray, optional
+        for writing out fields, essentially to reindex the vertical coordinate...
+    dsim, dirs : dict, optional
+        dictionaries to provide to submit prior application via MITgcm rather than
+        here
+
+    Returns
+    -------
+    ds : xarray Dataset
+        with the MAP point (m_MAP) and all misfits to characterize solution
+    """
+
+    ds = _add_map_fields(ds)
+
+    # --- Pack some vectors
+    [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip(
+                                        [m0,obs_mean,obs_std],
+                                        [m_packer,obs_packer,obs_packer])]
+    obs_std_inv = obs_std**-1
+    obs_var_inv = obs_std**-2
+
+    # --- Compute initial misfit: F m_0 - d, and weighted versions
+    initial_misfit = obs_mean - ds['F'].values @ m0
+    with xr.set_options(keep_attrs=True):
+        ds['initial_misfit'] = to_xda(initial_misfit,ds)
+        ds['initial_misfit_normalized'] = to_xda(obs_std_inv * initial_misfit,ds)
+        ds['initial_misfit_normvar'] = to_xda(obs_var_inv * initial_misfit,ds)
+
+    # --- compute first term
+    obs2model = ds['F'].T.values @ (obs_var_inv * obs_mean)
+
+    for nx in ds.Nx.values:
+        for xi in ds.xi.values:
+
+            # --- Possibly use lower dimensional subspace and get arrays
+            U = ds['U'].sel(Nx=nx,xi=xi).values if n_small is None else ds['U'].sel(Nx=nx,xi=xi).values[:,:n_small]
+            filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,xi=xi))
+            filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
+
+            # --- second term, apply prior inverse
+            m0_normalized = filterstd*m_packer.unpack(m0)
+            m0_normalized =  apply_priorhalf_inv_yz( \
+                                        fld=m0_normalized,
+                                        Nx=nx,xi=xi,
+                                        mask3D=mask3D,
+                                        mask2D=m_packer.mask,
+                                        ds=mds)
+            m0_normalized = apply_priorhalf_inv_yz( \
+                                        fld=m0_normalized,
+                                        Nx=nx,xi=xi,
+                                        mask3D=mask3D,
+                                        mask2D=m_packer.mask,
+                                        ds=mds)
+            m0_normalized = m_packer.pack(filterstd*m0_normalized)
+
+            # --- Add prior weighted initial guess and normalized obs in model space
+            smooth2DInput = []
+            for b in ds.beta.values:
+                obs_and_m0 = obs2model + (b**-2)*m0_normalized
+                obs_and_m0 = m_packer.unpack(obs_and_m0).reindex_like(xdalike).values
+                smooth2DInput.append(obs_and_m0)
+
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+
+            # --- Apply prior 1/2
+            smooth2DOutput = submit_priorhalf( \
+                        fld=smooth2DInput,
+                        mymask=m_packer.mask,
+                        xdalike=xdalike,
+                        Nx=nx,xi=xi,
+                        write_dir=dirs['write'],
+                        namelist_dir=dirs['namelist'],
+                        run_dir=dirs['run'],
+                        dsim=dsim)
+
+            # --- Apply (I-UDU^T)
+            smooth2DInput = []
+            for s,b in enumerate(ds.beta.values):
+
+                # --- Possibly account for lower dimensional subspace
+                Dinv = ds['Dinv'].sel(Nx=nx,xi=xi,beta=b).values
+                Dinv = Dinv if n_small is None else Dinv[:n_small]
+
+
+                oam = m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
+
+                udu = U @ (Dinv* (U.T @ oam))
+                iudu = oam - udu
+                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
+                smooth2DInput.append(iudu)
+
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+
+            # --- Apply prior 1/2 again
+            smooth2DOutput = submit_priorhalf( \
+                        fld=smooth2DInput,
+                        mymask=m_packer.mask,
+                        xdalike=xdalike,
+                        Nx=nx,xi=xi,
+                        write_dir=dirs['write'],
+                        namelist_dir=dirs['namelist'],
+                        run_dir=dirs['run'],
+                        dsim=dsim)
+            for s,b in enumerate(ds.beta.values):
+                mmap = (b**2)*m_packer.pack(filternorm*smooth2DOutput.sel(sample=s))
+        
+                # --- Compute m_map - m0, and weighted version
+                dm = filterstd*m_packer.unpack(mmap - m0)
+                dm_normalized = (b**-1) * apply_priorhalf_inv_yz( \
+                                            fld=dm,
+                                            Nx=nx,xi=xi,
+                                            mask3D=mask3D,
+                                            mask2D=m_packer.mask,
+                                            ds=mds)
+                dm_normalized = to_xda(m_packer.pack(dm_normalized),ds)
+                with xr.set_options(keep_attrs=True):
+                    ds['m_map'].loc[{'beta':b,'xi':xi,'Nx':nx}] = to_xda(mmap,ds)
+                    ds['reg_norm'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            np.linalg.norm(dm_normalized,ord=2)
+
+                # --- Compute misfits, and weighted version
+                misfits = ds['F'].values @ mmap - obs_mean
+                misfits_model_space = to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
+                misfits_model_space = misfits_model_space.where( \
+                                        ds['F'].T.values @ obs_mean !=0)
+
+                with xr.set_options(keep_attrs=True):
+                    ds['misfits'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            to_xda(misfits,ds)
+                    ds['misfits_normalized'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            to_xda(obs_std_inv * misfits,ds)
+                    ds['misfit_norm'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            np.linalg.norm(obs_std_inv * misfits,ord=2)
+                    ds['misfits_model_space'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            misfits_model_space
+            print(f' --- Done with xi = {xi} ---')
+        print(f' --- Done with Nx = {nx} ---')
+    return ds
+def solve_for_map(ds, m0, obs_mean, obs_std,
+                  m_packer, obs_packer, mask3D, mds,
+                  n_small=None,xdalike=None,dsim=None,dirs=None):
+    """Solve for m_MAP
+
+    $m_{MAP} = m_0 + H^{-1}F^T R^{-1}(d - F m_0)$
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        containing the EVD of the misfit Hessian, and interpolation operator F
+        assumed to have Nx, xi, and beta as dimensions
+    m0 : xarray DataArray
+        with the initial guess for the parameter field
+    obs_mean, obs_std : xarray DataArray
+        observational data values (mean) and uncertainty (standard deviation)
+    m_packer, obs_packer : rosypig ControlField or Observable
+        with pack/unpack routines and mask defining the extent of the field
+        in the domain
+    mask3D : xarray DataArray
+        this contains m_packer mask, see rosypig.apply_matern_2d
+    mds : xarray Dataset
+        containing the grid information for the domain m lives in
+    n_small : int, optional
+        only use the first n_small eigenmodes while applying the inverse Hessian
+    xdalike : xarray DataArray, optional
+        for writing out fields, essentially to reindex the vertical coordinate...
+    dsim, dirs : dict, optional
+        dictionaries to provide to submit prior application via MITgcm rather than
+        here
+
+    Returns
+    -------
+    ds : xarray Dataset
+        with the MAP point (m_MAP) and all misfits to characterize solution
+    """
+
+    ds = _add_map_fields(ds)
+
+    # --- Pack some vectors
+    [m0,obs_mean,obs_std] = [_unpack_field(x,y) for x,y in zip(
+                                        [m0,obs_mean,obs_std],
+                                        [m_packer,obs_packer,obs_packer])]
+    obs_std_inv = obs_std**-1
+    obs_var_inv = obs_std**-2
+
+    # --- Compute initial misfit: F m_0 - d, and weighted versions
+    initial_misfit = obs_mean - ds['F'].values @ m0
+    with xr.set_options(keep_attrs=True):
+        ds['initial_misfit'] = to_xda(initial_misfit,ds)
+        ds['initial_misfit_normalized'] = to_xda(obs_std_inv * initial_misfit,ds)
+        ds['initial_misfit_normvar'] = to_xda(obs_var_inv * initial_misfit,ds)
+
+    # --- Map back to model grid and apply posterior via EVD
+    misfit_model = ds['F'].T.values @ ds['initial_misfit_normvar'].values
+
+    for nx in ds.Nx.values:
+        for xi in ds.xi.values:
+
+            # --- Possibly use lower dimensional subspace and get arrays
+            U = ds['U'].sel(Nx=nx,xi=xi).values if n_small is None else ds['U'].sel(Nx=nx,xi=xi).values[:,:n_small]
+            filternorm = m_packer.unpack(ds['filternorm'].sel(Nx=nx,xi=xi))
+            filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
+
+            # --- Apply prior
+            prior_misfit_model = m_packer.unpack(misfit_model)
+            smooth2DInput = prior_misfit_model.broadcast_like(ds.beta*prior_misfit_model).reindex_like(xdalike).values
+            smooth2DOutput = submit_priorhalf( \
+                                    fld=smooth2DInput,
+                                    mymask=m_packer.mask,
+                                    xdalike=xdalike,
+                                    Nx=nx,xi=xi,
+                                    write_dir=dirs['write'],
+                                    namelist_dir=dirs['namelist'],
+                                    run_dir=dirs['run'],
+                                    dsim=dsim)
+            prior_misfit_model = filternorm*smooth2DOutput.isel(sample=0)
+            prior_misfit_model = m_packer.pack(prior_misfit_model)
+
+            smooth2DInput = []
+            for b in ds.beta.values:
+        
+                # --- Possibly account for lower dimensional subspace
+                Dinv = ds['Dinv'].sel(Nx=nx,xi=xi,beta=b).values
+                Dinv = Dinv if n_small is None else Dinv[:n_small]
+
+                # --- Apply (I-UDU^T)
+                udu = U @ ( Dinv * ( U.T @ (b*prior_misfit_model)))
+                iudu = b*prior_misfit_model - udu
+
+                iudu = m_packer.unpack(iudu).reindex_like(xdalike).values
+                smooth2DInput.append(iudu)
+
+            # --- Apply prior half
+            smooth2DInput = np.stack(smooth2DInput,axis=0)
+            smooth2DOutput = submit_priorhalf( \
+                                fld=smooth2DInput,
+                                mymask=m_packer.mask,
+                                xdalike=xdalike,
+                                Nx=nx,xi=xi,
+                                write_dir=dirs['write'],
+                                namelist_dir=dirs['namelist'],
+                                run_dir=dirs['run'],
+                                dsim=dsim)
+
+            for s,b in enumerate(ds.beta.values):
+
+                mmap = m0 + m_packer.pack(b*filternorm*smooth2DOutput.sel(sample=s))
+
+                # --- Compute m_map - m0, and weighted version
+                dm = filterstd*m_packer.unpack(mmap - m0)
+                dm_normalized = (b**-1) * apply_priorhalf_inv_yz( \
+                                            fld=dm,
+                                            Nx=nx,xi=xi,
+                                            mask3D=mask3D,
+                                            mask2D=m_packer.mask,
+                                            ds=mds)
+                dm_normalized = to_xda(m_packer.pack(dm_normalized),ds)
+                with xr.set_options(keep_attrs=True):
+                    ds['m_map'].loc[{'beta':b,'xi':xi,'Nx':nx}] = to_xda(mmap,ds)
+                    ds['reg_norm'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            np.linalg.norm(dm_normalized,ord=2)
+
+                # --- Compute misfits, and weighted version
+                misfits = ds['F'].values @ mmap - obs_mean
+                misfits_model_space = to_xda(mmap - ds['F'].T.values @ obs_mean,ds)
+                misfits_model_space = misfits_model_space.where( \
+                                        ds['F'].T.values @ obs_mean !=0)
+
+                with xr.set_options(keep_attrs=True):
+                    ds['misfits'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            to_xda(misfits,ds)
+                    ds['misfits_normalized'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            to_xda(obs_std_inv * misfits,ds)
+                    ds['misfit_norm'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            np.linalg.norm(obs_std_inv * misfits,ord=2)
+                    ds['misfits_model_space'].loc[{'beta':b,'xi':xi,'Nx':nx}] = \
+                            misfits_model_space
+
+            print(f' --- Done with xi = {xi} ---')
+        print(f' --- Done with Nx = {nx} ---')
+    return ds
+
+def submit_priorhalf(fld,
+                     mymask,
+                     xdalike,
+                     Nx,xi,
+                     write_dir,namelist_dir,run_dir,
+                     dsim,
+                     smoothOpNb=1,dataprec='float64'):
+    """submit to MITgcm to apply smoothing operator ... much faster
+    """
+
+    nrecs = fld.shape[0] if fld.shape!=mymask.shape else 1
+
+    # --- Write and submit
+    if not os.path.isdir(write_dir):
+        os.makedirs(write_dir)
+    fname = f'{write_dir}/smooth2DInput{smoothOpNb:03}'
+    wrmds(fname,arr=fld,dataprec=dataprec,nrecords=nrecs)
+    write_matern(write_dir,smoothOpNb=smoothOpNb,Nx=Nx,mymask=mymask,
+                 xdalike=xdalike,xi=xi)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        sim = Simulation(name='priorhalf',
+                         namelist_dir=namelist_dir,
+                         run_dir=run_dir,
+                         obs_dir=write_dir,**dsim)
+
+    sim.link_to_run_dir()
+    sim.write_slurm_script()
+    jid = sim.submit_slurm()
+
+    # --- Wait until done
+    doneyet = False
+    check_str = 'squeue -u $USER -ho %A --sort=S'
+    fnameout = f'{run_dir}/smooth2Dfld{smoothOpNb:03}'
+    while not doneyet:
+        pout = subprocess.run(check_str,shell=True,capture_output=True)
+        jid_list = [int(x) for x in pout.stdout.decode('utf-8').replace('\n',' ').split(' ')[:-1]]
+        doneyet = jid not in jid_list and os.path.isfile(fnameout+'.data') and os.path.isfile(fnameout+'.meta')
+        sleep(1)
+
+    # --- Done! Read the output
+    dsout = get_matern_dataset(run_dir,smoothOpNb=smoothOpNb,
+                               xdalike=xdalike,
+                               sample_num=np.arange(nrecs),
+                               read_filternorm=False)
+    fld_out = dsout['ginv'].reindex_like(mymask).load();
+    rmtree(sim.run_dir)
+
+    return fld_out
+
+def apply_priorhalf_inv_yz(fld,Nx,xi,mask3D,mask2D,ds):
+    """Apply the inverse square root of the prior covariance operator
+       just the laplace like operator no normalization
+        $\Gamma_{prior}^{-1/2}f$
+
+    Parameters
+    ----------
+    fld : xarray DataArray
+        To apply the operator to
+    Nx, xi, mask3D, mask2D, ds :
+        see rosypig.matern.apply_matern_2d
+
+    Returns
+    -------
+    xda : xarray DataArray
+        
+    """
+
+    C,K = get_matern(Nx=Nx,mymask=mask2D,xi=xi)
+    xda = apply_matern_2d(fld,
+                          mask3D=mask3D,
+                          mask2D=mask2D,
+                          ds=ds,
+                          delta=C['delta'],Kux=None,Kvy=K['vy'],Kwz=K['wz'])
+
+    return xda
+
+def apply_ppmh(Finterp, fld, filternorm, obs_std,
+               input_packer=None, output_packer=None):
+    """apply the prior preconditioned misfit Hessian to fld
+    (without the matern type smoothing, inverse laplacian-like operator)
+    """
+    HmTilde = get_ppmh(Finterp, filternorm, obs_std,
+                       input_packer=input_packer, output_packer=output_packer)
+
+    fld = fld.values.flatten() if input_packer is None else input_packer.pack(fld)
+    fld_out = HmTilde @ fld
+
+    return fld_out if input_packer is None else input_packer.unpack(fld_out) 
+
+
+def get_ppmh(Finterp, filternorm, obs_std,
+             input_packer=None, output_packer=None):
+    """Get the prior preconditioned misfit Hessian
+    (without the matern type smoothing, inverse laplacian-like operator)
+    """
+    if output_packer is not None:
+        obs_variance = xr.where((obs_std!=0)&(output_packer.mask),
+                                obs_std**-2, 0.)
+        obs_weight = output_packer.pack(obs_variance)
+    else:
+        obs_variance = xr.where(obs_std!=0,obs_std**-2,0.)
+        obs_weight = obs_variance.values.flatten()
+
+    if input_packer is not None:
+        F_norm = Finterp * input_packer.pack(filternorm)
+    else:
+        F_norm = Finterp * filternorm.values.flatten()
+
+    # this is the prior preconditioned misfit Hessian
+    return (F_norm.T * obs_weight) @ F_norm
+
 def _add_map_fields(ds):
     """Helper routine to define some container fields
     """
-    bfn = ds['beta']*ds['Fxy']*ds['Nx']
+    bfn = ds['beta']*ds['xi']*ds['Nx']
     ds['m_map'] = xr.zeros_like(bfn*ds['ctrl_ind'])
     ds['reg_norm'] = xr.zeros_like(bfn)
     ds['misfits'] = xr.zeros_like(bfn*ds['obs_ind'])
@@ -563,35 +580,7 @@ def _add_map_fields(ds):
     ds['initial_misfit_normvar'] = xr.zeros_like(ds['obs_ind'])
 
     # --- some descriptive attributes
-    ds['m_map'].attrs = {'label':r'$\mathbf{m}_{MAP}$',
-            'description':r'Maximum a Posteriori solution for control parameter $\mathbf{m}$'}
-    ds['reg_norm'].attrs = {'label':r'$||\mathbf{m}_{MAP} - \mathbf{m}_0||_{\Gamma_{prior}^{-1}}$',
-            'label2':r'$||\Gamma_{prior}^{-1/2}(\mathbf{m}_{MAP} - \mathbf{m}_0)||_2$',
-            'description':'Normed difference between initial and MAP solution, weighted by prior uncertainty'}
-    ds['misfits'].attrs = {'label':r'$F\mathbf{m}_{MAP} - \mathbf{d}$',
-            'description':'Difference between MAP solution and observations'}
-    ds['misfits_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_{MAP} - \mathbf{d}}{\sigma_{obs}}$',
-            'description':'Difference between MAP solution and observations, normalized by observation uncertainty'}
-    ds['misfit_norm'].attrs = {'label':r'$||F\mathbf{m}_{MAP} - \mathbf{d}||_{\Gamma_{obs}^{-1}}$',
-            'label2':r'$||\Gamma_{obs}^{-1/2}(F\mathbf{m}_{MAP} - \mathbf{d})||_2$',
-            'description':'Normed difference between MAP solution and observations, weighted by observational uncertainty'}
-    ds['misfits_model_space'].attrs = {'label':r'$\mathbf{m}_{MAP} - F^T\mathbf{d}$',
-            'description':'Difference between MAP solution and observations, in model domain'}
-    ds['initial_misfit'].attrs = {'label':r'$F\mathbf{m}_0 - \mathbf{d}$',
-            'description':'Difference between initial guess and observations'}
-    ds['initial_misfit_normalized'].attrs = {'label':r'$\dfrac{F\mathbf{m}_0 - \mathbf{d}}{\sigma_{obs}}$',
-            'description':'Difference between initial guess and observations, normalized by observation uncertainty'}
-    ds['initial_misfit_normvar'].attrs = {'label':r'$\Gamma_{obs}^{-1}(F\mathbf{m}_0 - \mathbf{d})$',
-            'description':'Difference between initial guess and observations, normalized by observational covariance'}
+    for fld in ds.keys():
+        ds[fld].attrs = get_nice_attrs(fld)
 
     return ds
-
-
-def _unpack_field(fld,packer=None):
-    if packer is not None:
-        if len(fld.shape)>1 or len(fld)!=packer.n_wet:
-            fld = packer.pack(fld)
-    else:
-        if len(fld.shape)>1:
-            fld = fld.flatten() if isinstance(fld,np.ndarray) else fld.values.flatten()
-    return fld

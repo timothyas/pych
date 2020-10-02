@@ -28,19 +28,19 @@ def get_alpha(ds):
     xda.name = 'alpha'
     return xda
 
-def getF(mymask,Fxy=1):
+def getPhi(mymask,xi=1):
     """Return Jacobian of deformation tensor as a dict
 
-            Fux  0   0 
-        F =  0  Fvy  0
-             0   0  Fwz
+              ux   0   0 
+        Phi = 0   vy   0
+              0    0  wz
 
     or a 2D section of that...
 
-    Fxy is an additional factor on Fux and/or Fvy
+    xi is an additional factor on ux and/or vy
     to accentuate the horizontal scales over the vertical
 
-    Fxy must be same size as mymask, or just a scalar
+    xi must be same size as mymask, or just a scalar
 
     """
 
@@ -49,21 +49,21 @@ def getF(mymask,Fxy=1):
     L = np.sqrt(mymask['rA']).broadcast_like(mymask)
     H = mymask['drF'].broadcast_like(mymask) if 'drF' in mymask.coords else xr.ones_like(mymask)
 
-    Fxy = Fxy*xr.ones_like(mymask)
+    xi = xi*xr.ones_like(mymask)
 
-    ux = Fxy*L
-    vy = Fxy*L
+    ux = xi*L
+    vy = xi*L
     wz = H
     
     if ndims==2:
         if set(('XC','YC')).issubset(mymask.dims):
-            return {'ux':ux,'vy':vy}
+            return {'ux':ux/xi,'vy':vy/xi}
         elif set(('YC','Z')).issubset(mymask.dims):
             return {'vy':vy,'wz':wz}
         elif set(('XC','Z')).issubset(mymask.dims):
             return {'ux':ux,'wz':wz}
         else:
-            raise TypeError('getF dims problem 2d')
+            raise TypeError('getPhi dims problem 2d')
     elif ndims==3:
         return {'ux':ux,'vy':vy,'wz':wz}
     else:
@@ -73,45 +73,43 @@ def get_delta(Nx,determinant,mymask):
     ndims = len(mymask.dims)
     nu = 1/2 if ndims==3 else 1
     numer = 8*nu
-    rho_hat_squared = Nx**2 if ndims==2 else (Nx * np.sqrt(mymask['rA']).mean())**2
-    denom = rho_hat_squared * determinant
+    Nx_hat_squared = Nx**2
+    denom = Nx_hat_squared * determinant
     xda = (numer/denom).broadcast_like(mymask)
     xda.name='delta'
     return xda
 
-def get_matern(Nx,mymask,Fxy=1):
+def get_matern(Nx,mymask,xi=1):
 
     C = {}
     K = {}
     ndims = len(mymask.dims)
-    F = getF(mymask,Fxy=Fxy)
+    Phi = getPhi(mymask,xi=xi)
     C['alpha'] = get_alpha(mymask.to_dataset(name='mask')).broadcast_like(mymask)
-    C['gamma'] = 1e-5
-    C['nu'] = 1/2
     C['Nx'] = Nx
     if ndims == 2:
         if set(('XC','YC')).issubset(mymask.dims):
-            C['determinant'] = F['vy']*F['ux']
+            C['determinant'] = Phi['vy']*Phi['ux']
         elif set(('YC','Z')).issubset(mymask.dims):
-            C['determinant'] = F['wz']*F['vy']
+            C['determinant'] = Phi['wz']*Phi['vy']
         elif set(('XC','Z')).issubset(mymask.dims):
-            C['determinant'] = F['wz']*F['ux']
+            C['determinant'] = Phi['wz']*Phi['ux']
         else:
             raise TypeError('Help my dims out')
     else:
-        C['determinant'] = F['wz']*F['vy']*F['ux']
+        C['determinant'] = Phi['wz']*Phi['vy']*Phi['ux']
 
     C['randNorm'] = 1/np.sqrt(C['determinant'])
     C['delta'] = get_delta(Nx,determinant=C['determinant'],mymask=mymask)
 
     if 'XC' in mymask.dims:
-        K['ux'] = 1 / C['determinant'] * F['ux']*F['ux']
+        K['ux'] = 1 / C['determinant'] * Phi['ux']*Phi['ux']
     if 'YC' in mymask.dims:
-        K['vy'] = 1 / C['determinant'] * F['vy']*F['vy']
+        K['vy'] = 1 / C['determinant'] * Phi['vy']*Phi['vy']
     if 'Z' in mymask.dims:
-        K['wz'] = 1 / C['determinant'] * F['wz']*F['wz']
+        K['wz'] = 1 / C['determinant'] * Phi['wz']*Phi['wz']
 
-    for dd,lbl in zip([C,K,F],['constants','K','F']):
+    for dd,lbl in zip([C,K,Phi],['constants','K','Phi']):
         for key,val in dd.items():
             if key != 'alpha':
                 if isinstance(val,xr.core.dataarray.DataArray):
@@ -121,7 +119,7 @@ def get_matern(Nx,mymask,Fxy=1):
                         raise TypeError(f'dim order for {lbl}[{key}] is: ',val.dims)
     return C,K
 
-def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,Fxy=1):
+def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,xi=1):
     """Write everything to describe the SPDE operator associated
     with the Matern covariance
 
@@ -143,7 +141,7 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,Fxy=1):
     ndims = len(mymask.dims)
 
     # Make the tensor and put into big array
-    C,K = get_matern(Nx,mymask,Fxy=Fxy)
+    C,K = get_matern(Nx,mymask,xi=xi)
 
     # Write out the fields
     if not os.path.isdir(write_dir):
@@ -195,9 +193,9 @@ def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None,
         fldlist = [smooth_fld,smooth_norm,smooth_fld*smooth_norm,
                    (smooth_fld-smooth_mean)*smooth_norm]
         labels = [r'$\mathcal{A}^{-1}g$',
-                  r'$\Lambda$',
-                  r'$\Lambda\mathcal{A}^{-1}g$',
-                  r'$\Lambda\mathcal{A}^{-1}(g-\bar{g}$']
+                  r'$X$',
+                  r'$X\mathcal{A}^{-1}g$',
+                  r'$X\mathcal{A}^{-1}(g-\bar{g}$']
     else:
         names = ['ginv']
         fldlist = [smooth_fld]
