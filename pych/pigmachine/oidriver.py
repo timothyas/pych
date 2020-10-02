@@ -962,7 +962,7 @@ class OIDriver:
         numsuff = f'.{Nx:02}dx.{xi:02}xi'
         if read_str is not None:
             read_str += '/run' + numsuff
-            read_dir = self.dirs["main_run"] + read_str
+            read_dir = self.dirs["main_run"] + '/' + read_str
         else:
             read_dir = None
 
