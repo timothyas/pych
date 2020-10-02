@@ -930,45 +930,47 @@ class OIDriver:
 
         elif stage == 'range_approx_two':
             read_str  = 'matern'
-            write_str = self.experiment + '.range2'
+            write_str = self.experiment + '/range2'
 
         elif stage == 'basis_projection_one':
-            read_str  = self.experiment + '.range2'
-            write_str = self.experiment + '.project1'
+            read_str  = self.experiment + '/range2'
+            write_str = self.experiment + '/project1'
 
         elif stage == 'basis_projection_two':
-            read_str  = self.experiment + '.project1'
-            write_str = self.experiment + '.project2'
+            read_str  = self.experiment + '/project1'
+            write_str = self.experiment + '/project2'
 
         elif stage == 'do_the_evd':
-            read_str  = self.experiment + '.project2'
+            read_str  = self.experiment + '/project2'
             write_str = None
 
         elif stage == 'prior_to_misfit':
-            read_str = self.experiment + '.project2'
-            write_str = self.expWithInitGuess + '.p2m'
+            read_str = self.experiment + '/project2'
+            write_str = self.expWithInitGuess + '/p2m'
 
         elif stage == 'solve_for_map':
-            read_str = self.expWithInitGuess + '.p2m'
-            write_str = self.expWithInitGuess + '.map'
+            read_str = self.expWithInitGuess + '/p2m'
+            write_str = self.expWithInitGuess + '/map'
 
         elif stage == 'save_the_map':
-            read_str = self.expWithInitGuess + '.map'
+            read_str = self.expWithInitGuess + '/map'
             write_str = None
 
         else:
             raise NameError(f'Unexpected stage for directories: {stage}')
 
+        numsuff = f'.{Nx:02}dx.{xi:02}xi'
         if read_str is not None:
-            read_suff = read_str + f'.{Nx:02}dx.{xi:02}xi'
-            read_dir = self.dirs["main_run"] + '/run.' + read_suff
+            read_str += '/run' + numsuff
+            read_dir = self.dirs["main_run"] + read_str
         else:
             read_dir = None
 
         if write_str is not None:
-            write_suff = write_str + f'.{Nx:02}dx.{xi:02}xi'
-            write_dir = _dir(self.dirs['main_run']+'/'+write_suff)
-            run_dir   = self.dirs['main_run']+'/run.'+write_suff
+            write_dir = write_str + '/input' + numsuff
+            run_dir   = write_str + '/run'   + numsuff
+            write_dir = _dir(self.dirs['main_run']+'/'+write_dir)
+            run_dir   = self.dirs['main_run']+'/'+run_dir
         else:
             write_dir=None
             run_dir=None
@@ -1012,6 +1014,8 @@ def _add_map_fields(ds,sigma,doRegularizeDebug):
 
     # --- some descriptive attributes
     for fld in ds.keys():
+        ds[fld].attrs = get_nice_attrs(fld)
+    for fld in ds.coords.keys():
         ds[fld].attrs = get_nice_attrs(fld)
 
     return ds
