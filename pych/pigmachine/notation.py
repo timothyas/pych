@@ -30,6 +30,10 @@ def get_nice_attrs(fldname):
         'label': r'$\Phi$',
         'description': 'jacobian of mapping from isotropic, stationary space to '+\
                        'the real world'},
+    'ups': {
+        'label': r'$\upsilon$',
+        'description': 'pointwise Matern variance for the '+\
+                'isotropic, stationary case, i.e. in $\hat{\Omega}$'},
     'randNorm': {
         'label': r'det$(\Phi(\mathbf{x}))^{1/2}$',
         'description': 'normalization for white noise right hand side in Matern '+\
