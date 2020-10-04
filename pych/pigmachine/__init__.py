@@ -4,7 +4,7 @@ from .io import (
         read_pigbin_xy, read_pigbin_yz, read_mds)
 
 from .interp_obcs import (
-        get_beta_best,
+        get_nx_best,get_sigma_best,
         solve_for_map,
         submit_priorhalf,
         apply_ppmh, get_ppmh,

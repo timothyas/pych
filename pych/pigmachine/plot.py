@@ -10,10 +10,12 @@ import cartopy.crs as ccrs
 
 from .matern import calc_variance
 
-def plot_lcurve_discrep(ds,d3,dim1='beta',dim2='Nx',dim3='Fxy',
-                        fig=None,axs=None,linestyle='-',
+def plot_lcurve_discrep(ds,d3,dim1='sigma',dim2='Nx',dim3='Fxy',
+                        fig=None,axs=None,
                         doLabel=True,lbl_skip=2,
-                        legend_labels=None):
+                        legend_labels=None,
+                        labeltype='dim',
+                        **kwargs):
     """plot L-Curve Criterion and "discrepancy principle plots next to each other"""
 
     if axs is None:
@@ -26,59 +28,56 @@ def plot_lcurve_discrep(ds,d3,dim1='beta',dim2='Nx',dim3='Fxy',
 
     for llbl,d1 in zip(legend_labels,ds[dim1].values):
 
-        regnorm = []
-        true_reg = []
-        misfitnorm = []
-        lbl_list = []
-        for d2 in ds[dim2].values:
-            # Select d3
-            if isinstance(d3,xr.core.dataarray.DataArray):
-                myd3 = float(d3.sel({dim1:d1,dim2:d2}).values)
+        if isinstance(d3,xr.core.dataarray.DataArray):
+            raise NotImplementedError('Need to finish this')
+        else:
+            myd3 = d3
+            plotme = ds.sel({dim1:d1,dim3:myd3},method='nearest')
+        var = calc_variance(plotme.Nx)
+        reg = var / plotme.sigma**2
+        misfits = plotme.misfit_norm
+        soln_norm = 1/reg * plotme.reg_norm
+
+        # Make labels of either dimension values (sigma, Nx)
+        # or as the actual regularization
+        if labeltype=='dim':
+            if dim2=='Nx':
+                lbl_list = [f'{dd}' for dd in plotme[dim2].values]
             else:
-                myd3 = d3
-            plotme = ds.sel({dim1:d1,dim2:d2,dim3:myd3},method='nearest')
-            var = calc_variance(plotme.Nx.values)
-            reg = var / (plotme.beta.values**2)
-            true_reg.append(reg)
+                lbl_list = [f'{dd:1.1e}' for dd in plotme[dim2].values]
+        else:
+            lbl_list = [f'{rr:2.2e}' for rr in list(reg.values)]
+        prefix = ds[dim2].label if labeltype=='dim' else r'$\upsilon\beta^2$'
+        lbl_list = [prefix+'= '+lbl for lbl in lbl_list]
 
-            y = 1/reg * plotme.reg_norm.values
-            x = plotme.misfit_norm.values
-            regnorm.append(y)
-            misfitnorm.append(x)
-            lbl_list.append(d2)
-        true_reg = np.array(true_reg)
-        regnorm = np.array(regnorm)
-        misfitnorm = np.array(misfitnorm)
-
-        # --- L-Curve
-        axs[0].loglog(misfitnorm,regnorm,marker='o',label=llbl,linestyle=linestyle)
-
-        # --- Discrepancy
-        axs[1].loglog(true_reg,misfitnorm,marker='o',label=llbl,linestyle=linestyle)
+        # --- L-Curve and Discrepancy
+        axs[0].loglog(misfits,soln_norm,marker='o',label=llbl,**kwargs)
+        axs[1].loglog(reg,misfits,marker='o',label=llbl,**kwargs)
 
         # --- labeling
         if doLabel:
-            for x,y,ax in zip([misfitnorm,true_reg],
-                              [regnorm,misfitnorm],
-                              axs):
-                for xi,yi,bi in zip(x[::lbl_skip],y[::lbl_skip],lbl_list[::lbl_skip]):
-                    lbl = ds[dim2].label
-                    lbl = lbl+'=%d' % bi if dim2=='Nx' else lbl+'=%1.1e' % bi
-                    ax.text(xi,yi,lbl)
+            for x_i,y_i,l_i in zip(misfits[::lbl_skip],
+                                   soln_norm[::lbl_skip],lbl_list[::lbl_skip]):
+                axs[0].text(x_i,y_i,l_i)
+            for x_i,y_i,l_i in zip(reg[::lbl_skip],
+                                   misfits[::lbl_skip],lbl_list[::lbl_skip]):
+                axs[1].text(x_i,y_i,l_i)
 
-    [ax.grid() for ax in axs];
     if isinstance(d3,xr.core.dataarray.DataArray):
         [ax.legend(title=ds[dim1].label+f', ({ds[dim3].label})') for ax in axs];
     else:
         [ax.legend(title=ds[dim1].label+f', ({ds[dim3].label}={d3})') for ax in axs];
-    axs[0].set(xlabel=ds.misfit_norm.label,ylabel=ds.reg_norm.label)
-    axs[1].set(xlabel=r'$\nu/\beta^2$',ylabel=ds.misfit_norm.label);
+    axs[0].set(xlabel=ds.misfit_norm.label,ylabel=r'$\dfrac{1}{\upsilon\beta^2}$'+ds.reg_norm.label)
+    axs[1].set(xlabel=r'$\upsilon\beta^2$',ylabel=ds.misfit_norm.label);
+    [ax.grid(True) for ax in axs];
     return fig,axs
 
-def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,
+def plot_map_and_misfits(ds_in,Nx,xi,sigma,obs_packer,ctrl_packer,
                          misfit_fld='misfits_normalized',**kwargs):
 
-    ds = ds_in.sel(Nx=Nx,Fxy=Fxy,beta=beta,method='nearest')
+    if isinstance(sigma,xr.core.dataarray.DataArray):
+        sigma = sigma.sel(Nx=Nx,xi=xi)
+    ds = ds_in.sel(Nx=Nx,xi=xi,sigma=sigma,method='nearest')
 
     fig,axs = plt.subplots(1,2,figsize=(18,6))
 
@@ -88,8 +87,8 @@ def plot_map_and_misfits(ds_in,Nx,Fxy,beta,obs_packer,ctrl_packer,
 
     mylabel =   ds.m_map.label+'\n'+ \
                 ds.Nx.label+f' = {int(ds.Nx.values)}\n'+\
-                ds.Fxy.label+f' = {float(ds.Fxy.values)}\n'+\
-                ds.beta.label+f' = {float(ds.beta.values):1.1e}'
+                ds.xi.label+f' = {float(ds.xi.values)}\n'+\
+                ds.sigma.label+f' = {float(ds.sigma.values):1.1e}'
     axs[0].text(-75.3,-1000,mylabel,horizontalalignment='center')
 
     # --- Normalized Misfits

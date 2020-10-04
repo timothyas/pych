@@ -16,14 +16,31 @@ from .matern import get_matern,write_matern,write_matern,get_matern_dataset
 from .notation import get_nice_attrs
 from .io import read_mds
 
-def get_beta_best(ds):
-    ds['beta_best'] = xr.zeros_like(ds.xi*ds.Nx)
-    bbest = ds.beta.broadcast_like(ds.misfit_norm).where(ds.misfit_norm==ds.misfit_norm.min(['beta']))
-    for Nx in ds.Nx.values:
-        for xi in ds.xi.values:
-            ds.beta_best.loc[{'Nx':Nx,'xi':xi}]= float(bbest.sel(Nx=Nx,xi=xi).dropna('beta').values)
-    ds['beta_best'].attrs = {'label':r'$\beta_{best}$'}
+def get_nx_best(ds):
+    """pick a sigma, find Nx for which misfit is minimum
+    """
+    NxBest = xr.zeros_like(ds.sigma*ds.xi)
+    for xi in ds.xi.values:
+        for sigma in ds.sigma.values:
+            mymisfit = ds.misfit_norm.sel(xi=xi,sigma=sigma)
+            nb = mymisfit.Nx.where(mymisfit==mymisfit.min(),drop=True)
+            NxBest.loc[{'xi':xi,'sigma':sigma}] = int(nb)
+    ds['NxBest'] = NxBest
+    return ds
 
+def get_sigma_best(ds):
+    """Given Nx best, then sigma best for Nx is the sigma at which misfit is minimized
+    """
+    if 'NxBest' not in ds:
+        ds = get_nx_best(ds)
+    sigma_best = ds.sigma.min()*xr.ones_like(ds.Nx*ds.xi)
+    for xi in ds.xi.values:
+        for Nx in np.unique(ds.NxBest.sel(xi=xi)):
+            mymisfit = ds.misfit_norm.sel(xi=xi,Nx=Nx).where(ds.NxBest.sel(xi=xi)==Nx)
+            sb = ds.sigma.where(mymisfit==mymisfit.min('sigma'),drop=True)
+            sigma_best.loc[{'xi':xi,'Nx':Nx}] = float(sb)
+    ds['sigma_best'] = sigma_best
+    return ds
 
 def interp_operator_2d( dims_in, dims_out,
                         pack_index_in=None,
