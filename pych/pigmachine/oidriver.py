@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import subprocess
+import warnings
 import numpy as np
 from shutil import rmtree
 from time import sleep
@@ -56,7 +57,7 @@ class OIDriver:
     dataprec = 'float64'
     NxList  = [5, 10, 15, 20, 30, 40]
     xiList  = [0.5,   1,   2]#,   5]
-    sorList = [1.8, 1.6, 1.3]#, 1.2]
+    sorDict = {0.5:1.8, 1:1.6, 2:1.3, 5:1.2}
     n_sigma = 9
     sigma = 10**np.linspace(-5,-3,n_sigma)
     smoothOpNb = 1
@@ -227,8 +228,6 @@ class OIDriver:
                 if key == 'sigma' and isinstance(val,list):
                     val = np.array(val)
                 self.__dict__[key] = val
-
-        self.sordict = dict(zip(self.xiList,self.sorList))
 
     def _send_to_stage(self,stage):
         possible_stages = ['range_approx_one','range_approx_two', 
@@ -814,7 +813,11 @@ class OIDriver:
         smooth = f'smooth{ndims}D'
         alg = 'matern'
         alg = alg if not smooth_apply else alg+'apply'
-        sor = self.sordict[xi]
+        if xi not in self.sorDict.keys():
+            warnings.warn(f'sor parameter value unknown for xi={xi}, setting sor=1 (=Gauss-Seidel)')
+            sor=1
+        else:
+            sor = self.sorDict[xi]
         file_contents = ' &SMOOTH_NML\n'+\
             f' {smooth}Filter({self.smoothOpNb})=1,\n'+\
             f' {smooth}Dims({self.smoothOpNb})=\'{self.smooth2DDims}\',\n'+\
