@@ -54,6 +54,7 @@ class OIDriver:
     n_small = 950
     n_over = 50
     n_rand = 1000
+    n_norm = 1000
     dataprec = 'float64'
     NxList  = [5, 10, 15, 20, 30, 40]
     xiList  = [0.5,   1,   2]#,   5]
@@ -140,6 +141,18 @@ class OIDriver:
             raise TypeError('No identifying name for initial guess, add as standard_name in DataArray attributes')
         if m0.attrs['standard_name']=='':
             raise TypeError('Blank name for initial guess, add something useful as standard_name in DataArray attributes')
+
+        try:
+            assert self.n_rand <= self.n_norm
+        except AssertionError as err:
+            err.args += ('n_rand (# samples for REVD) must be <= n_norm '+\
+                    '(# samples for covariance filter normalization')
+            raise err
+        try:
+            assert self.n_small+self.n_over == self.n_rand
+        except AssertionError as err:
+            err.args += ('n_rand must equal small dimension + # for oversampling')
+            raise err
 
         # --- Add tmp netcdf directory
         dirs['nctmp'] = dirs['netcdf']+'/tmp'
@@ -265,16 +278,16 @@ class OIDriver:
                 _, write_dir, run_dir = self._get_dirs('range_approx_one',Nx,xi)
 
                 self.smooth_writer(write_dir, xi=xi, smooth_apply=False,
-                                    num_inputs=self.n_rand)
+                                    num_inputs=self.n_norm)
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
                                     Nx=Nx,mymask=self.ctrl.mask,
                                     xdalike=self.mymodel,xi=xi) 
 
                 sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_oi_ra1',
-                                 run_dir=run_dir,
-                                 obs_dir=write_dir,
-                                 **self.dsim)
+                                    run_dir=run_dir,
+                                    obs_dir=write_dir,
+                                    **self.dsim)
 
                 # launch job
                 sim.link_to_run_dir()
@@ -313,7 +326,7 @@ class OIDriver:
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
                                                xdalike=self.mymodel,
-                                               sample_num=np.arange(self.n_rand),
+                                               sample_num=np.arange(self.n_norm),
                                                read_filternorm=True)
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
@@ -333,8 +346,8 @@ class OIDriver:
                 filternorm = self.ctrl.pack(ds['filternorm'].values)
                 F_norm = self.F*filternorm
                 FtWF = (F_norm.T * self.obs_var_inv) @ F_norm
-                for s in ds.sample.values:
-                    g_out = FtWF @ self.ctrl.pack(ds['ginv'].sel(sample=s))
+                for s in range(self.n_rand):
+                    g_out = FtWF @ self.ctrl.pack(ds['ginv'].isel(sample=s))
                     g_out = self.ctrl.unpack(g_out)
                     smooth2DInput.append(g_out)
 
@@ -342,10 +355,10 @@ class OIDriver:
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
                 self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=Nx,xi=xi,
-                                   write_dir=write_dir,
-                                   run_dir=run_dir,
-                                   run_suff='ra2')
+                                            Nx=Nx,xi=xi,
+                                            write_dir=write_dir,
+                                            run_dir=run_dir,
+                                            run_suff='ra2')
                 jid_list.append(jid)
 
             # --- Keep appending the dataset with filternorm for safe keeping
@@ -399,8 +412,8 @@ class OIDriver:
         
                 # Form Y, range approximator
                 Y = []
-                for s in ds.sample.values:
-                    Y.append(self.ctrl.pack(ds['ginv'].sel(sample=s)))
+                for s in range(self.n_rand):
+                    Y.append(self.ctrl.pack(ds['ginv'].isel(sample=s)))
                 Y = np.array(Y).T
         
                 # do some linalg
@@ -421,10 +434,10 @@ class OIDriver:
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
                 self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=Nx,xi=xi,
-                                   write_dir=write_dir,
-                                   run_dir=run_dir,
-                                   run_suff='proj1')
+                                            Nx=Nx,xi=xi,
+                                            write_dir=write_dir,
+                                            run_dir=run_dir,
+                                            run_suff='proj1')
                 jid_list.append(jid)
         
             # get those datasets
@@ -477,7 +490,7 @@ class OIDriver:
                 filternorm = evds['filternorm'].sel(Nx=Nx,xi=xi).values
                 F_norm = evds['F'].values*filternorm
                 FtWF = (F_norm.T * self.obs_var_inv) @ F_norm
-                for s in ds.sample.values:
+                for s in range(self.n_rand):
                     # write this out rather than form it every time
                     g_out = FtWF @ self.ctrl.pack(ds['ginv'].sel(sample=s))
                     g_out = self.ctrl.unpack(g_out)
@@ -487,10 +500,10 @@ class OIDriver:
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
                 self.smooth_writer(write_dir, xi=xi, num_inputs=self.n_rand)
                 jid,sim =self.submit_matern(fld=smooth2DInput,
-                                   Nx=Nx,xi=xi,
-                                   write_dir=write_dir,
-                                   run_dir=run_dir,
-                                   run_suff='proj2')
+                                            Nx=Nx,xi=xi,
+                                            write_dir=write_dir,
+                                            run_dir=run_dir,
+                                            run_suff='proj2')
                 jid_list.append(jid)
 
         # --- Pass on to next stage
@@ -535,8 +548,8 @@ class OIDriver:
 
                 # Get Hm Q
                 HmQ = []
-                for s in ds.sample.values:
-                    HmQ.append(self.ctrl.pack(ds['ginv'].sel(sample=s)))
+                for s in range(self.n_rand):
+                    HmQ.append(self.ctrl.pack(ds['ginv'].isel(sample=s)))
                 HmQ = np.array(HmQ).T
 
                 # Apply Q^T
@@ -610,12 +623,11 @@ class OIDriver:
                 smooth2DInput = self.ctrl.unpack(filternorm*misfit2model)
 
                 self.smooth_writer(write_dir, xi=xi, num_inputs=1)
-                jid,sim = self.submit_matern( \
-                                    fld=smooth2DInput,
-                                    Nx=Nx,xi=xi,
-                                    write_dir=write_dir,
-                                    run_dir=run_dir,
-                                    run_suff='p2m')
+                jid,sim = self.submit_matern(fld=smooth2DInput,
+                                             Nx=Nx,xi=xi,
+                                             write_dir=write_dir,
+                                             run_dir=run_dir,
+                                             run_suff='p2m')
                 jid_list.append(jid)
 
         self.submit_next_stage(next_stage='solve_for_map',
@@ -679,10 +691,10 @@ class OIDriver:
                 smooth2DInput = xr.concat(smooth2DInput,dim='sigma')
                 self.smooth_writer(write_dir, xi=xi, num_inputs=len(self.sigma))
                 jid,sim = self.submit_matern(fld=smooth2DInput,
-                                         Nx=Nx,xi=xi,
-                                         write_dir=write_dir,
-                                         run_dir=run_dir,
-                                         run_suff='map')
+                                             Nx=Nx,xi=xi,
+                                             write_dir=write_dir,
+                                             run_dir=run_dir,
+                                             run_suff='map')
                 jid_list.append(jid)
 
         evds.to_netcdf(self.dirs['nctmp']+f'/{self.expWithInitGuess}_map.nc')
