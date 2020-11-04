@@ -79,6 +79,21 @@ def get_delta(Nx,determinant,mymask):
     xda.name='delta'
     return xda
 
+def get_cell_volume(mymask):
+    """return the cell volume as part of the normalization factor
+    for the white noise process"""
+
+    ndims = len(mymask.dims)
+    if ndims==2:
+        if set(('XC','YC')).issubset(mymask.dims):
+            return mymask['rA']
+        elif set(('YC','Z')).issubset(mymask.dims):
+            return mymask['drF']*np.sqrt(mymask['rA'])
+        elif set(('XC','Z')).issubset(mymask.dims):
+            return mymask['drF']*np.sqrt(mymask['rA'])
+    else:
+        return mymask['drF']*mymask['rA']
+
 def get_matern(Nx,mymask,xi=1):
 
     C = {}
@@ -99,7 +114,7 @@ def get_matern(Nx,mymask,xi=1):
     else:
         C['determinant'] = Phi['wz']*Phi['vy']*Phi['ux']
 
-    C['randNorm'] = 1/np.sqrt(C['determinant'])
+    C['randNorm'] = 1/np.sqrt(C['determinant'])/np.sqrt(get_cell_volume(mymask))
     C['delta'] = get_delta(Nx,determinant=C['determinant'],mymask=mymask)
 
     if 'XC' in mymask.dims:

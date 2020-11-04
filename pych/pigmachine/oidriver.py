@@ -68,7 +68,7 @@ class OIDriver:
     doRegularizeDebug = False
     def __init__(self, experiment,stage=None):
         """Should this initialize? Or do we want another method to do it?
-        
+
         Parameters
         ----------
         experiment : str
@@ -107,7 +107,7 @@ class OIDriver:
                 and simulations are started
             'netcdf' : where to save netcdf files when finished
                 Note: a separate tmp/ directory is created inside for
-                intermittent saves 
+                intermittent saves
         dsim : dict
             containing the base parameters for a rosypig.Simulation
             'machine', 'n_procs', 'exe_file', 'binary_dir', 'pickup_dir', 'time'
@@ -158,7 +158,7 @@ class OIDriver:
         dirs['nctmp'] = dirs['netcdf']+'/tmp'
         for mydir in ['json',dirs['netcdf'],dirs['nctmp'],dirs['main_run']]:
             _dir(mydir);
-        
+
         # --- Write the directories
         def write_json(mydict,mysuff):
             json_file = f'json/{self.experiment}'+mysuff
@@ -188,7 +188,7 @@ class OIDriver:
         """Read in the files saved in start, prepare self for next stage
         """
 
-        # --- Read 
+        # --- Read
         def read_json(mysuff):
             json_file = f'json/{self.experiment}' + mysuff
             if not os.path.isfile(json_file):
@@ -243,8 +243,8 @@ class OIDriver:
                 self.__dict__[key] = val
 
     def _send_to_stage(self,stage):
-        possible_stages = ['range_approx_one','range_approx_two', 
-                           'basis_projection_one','basis_projection_two', 
+        possible_stages = ['range_approx_one','range_approx_two',
+                           'basis_projection_one','basis_projection_two',
                            'do_the_evd','prior_to_misfit',
                            'solve_for_map','save_the_map']
 
@@ -261,7 +261,7 @@ class OIDriver:
 # Range Approximation
 # ---------------------------------------------------------------------
     def range_approx_one(self):
-        """Define the Laplacian-like operator A = delta - div(kappa grad( )) 
+        """Define the Laplacian-like operator A = delta - div(kappa grad( ))
         and use the MITgcm to:
 
             1. generate n_rand gaussian random samples, g_i
@@ -282,7 +282,7 @@ class OIDriver:
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
                                     Nx=Nx,mymask=self.ctrl.mask,
-                                    xdalike=self.mymodel,xi=xi) 
+                                    xdalike=self.mymodel,xi=xi)
 
                 sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_oi_ra1',
                                     run_dir=run_dir,
@@ -396,7 +396,7 @@ class OIDriver:
         for Nx in self.NxList:
             dslistXi = []
             for xi in self.xiList:
-    
+
                 # --- Prepare read and write
                 read_dir, write_dir, run_dir = self._get_dirs('basis_projection_one',Nx,xi)
 
@@ -409,26 +409,30 @@ class OIDriver:
 
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
-        
+
+                # Get randNorm
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+
                 # Form Y, range approximator
                 Y = []
                 for s in range(self.n_rand):
-                    Y.append(self.ctrl.pack(ds['ginv'].isel(sample=s)))
+                    output = C['randNorm']*ds['ginv'].sel(sample=s)
+                    Y.append(self.ctrl.pack(output))
                 Y = np.array(Y).T
-        
+
                 # do some linalg
                 Q,_ = np.linalg.qr(Y)
-        
+
                 # prep for saving
                 tmpds = xr.Dataset()
                 tmpds['Y'] = rp.to_xda(Y,evds,expand_dims={'Nx':Nx,'xi':xi})
                 tmpds['Q'] = rp.to_xda(Q,evds,expand_dims={'Nx':Nx,'xi':xi})
                 dslistXi.append(tmpds)
-        
+
                 # --- Write out Q and submit job
                 smooth2DInput = []
                 for i in range(self.n_rand):
-                    q = self.ctrl.unpack(Q[:,i],fill_value=0.)
+                    q = C['randNorm']*self.ctrl.unpack(Q[:,i],fill_value=0.)
                     smooth2DInput.append(q)
 
                 smooth2DInput = xr.concat(smooth2DInput,dim='sample')
@@ -439,7 +443,7 @@ class OIDriver:
                                             run_dir=run_dir,
                                             run_suff='proj1')
                 jid_list.append(jid)
-        
+
             # get those datasets
             dslistNx.append(xr.concat(dslistXi,dim='xi'))
         newds = xr.concat(dslistNx,dim='Nx')
@@ -475,7 +479,7 @@ class OIDriver:
 
                 # --- Prepare directories
                 read_dir, write_dir, run_dir = self._get_dirs('basis_projection_two',Nx,xi)
-            
+
                 # --- Read output from last stage, apply obserr,filternorm weight op
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -546,10 +550,14 @@ class OIDriver:
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
 
+                # Get randNorm
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+
                 # Get Hm Q
                 HmQ = []
                 for s in range(self.n_rand):
-                    HmQ.append(self.ctrl.pack(ds['ginv'].isel(sample=s)))
+                    output = C['randNorm']*ds['ginv'].sel(sample=s)
+                    HmQ.append(self.ctrl.pack(output))
                 HmQ = np.array(HmQ).T
 
                 # Apply Q^T
@@ -585,7 +593,7 @@ class OIDriver:
 
     def prior_to_misfit(self):
         """Optional to re-run this from the last stage with another initial guess
-        Given the eigenvalue decomposition of 
+        Given the eigenvalue decomposition of
 
             M = A^{-1}XF^T\Gamma_{obs}^{-1}FXA^{-1} = VDV^T
 
@@ -673,18 +681,21 @@ class OIDriver:
                 ds = ds.sortby(list(self.mymodel.dims))
                 ds['ginv'].load();
 
-                prior_misfit2model = self.ctrl.pack(ds['ginv'])
+                # Get randNorm
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+
+                prior_misfit2model = self.ctrl.pack(C['randNorm']*ds['ginv'])
 
                 smooth2DInput = []
                 for s in self.sigma:
-        
+
                     # --- Possibly account for lower dimensional subspace
                     Dinv = evds['Dinv'].sel(Nx=Nx,xi=xi,sigma=s).values[:self.n_small]
 
                     # --- Apply (I-VDV^T)
                     vdv = V @ ( Dinv * ( V.T @ prior_misfit2model))
                     ivdv = prior_misfit2model - vdv
-                    ivdv = self.ctrl.unpack(ivdv)
+                    ivdv = C['randNorm']*self.ctrl.unpack(ivdv)
                     smooth2DInput.append(ivdv)
 
                 # --- Apply prior half
@@ -751,6 +762,7 @@ class OIDriver:
                                                 ds=self.cds,
                                                 delta=C['delta'],
                                                 Kux=None,Kvy=K['vy'],Kwz=K['wz'])
+                    dm_normalized = dm_normalized*(C['randNorm']**-1)
 
                     dm_normalized = rp.to_xda(self.ctrl.pack(dm_normalized),evds)
                     with xr.set_options(keep_attrs=True):
@@ -787,7 +799,7 @@ class OIDriver:
     def regular_debug_plots(self,evds,Nx,xi,sigma,m_update,C,K):
 
         # --- Extra regularization terms
-        var = matern.calc_variance(Nx=Nx) 
+        var = matern.calc_variance(Nx=Nx)
         SHalfmat = filterstd / np.sqrt(var)
         dm = filterstd*m_update
         rlap = (sigma**-1)*rp.apply_laplacian_2d( \
@@ -877,7 +889,7 @@ class OIDriver:
         jid = sim.submit_slurm(**self.slurm)
 
         return jid,sim
-        
+
 
     def submit_next_stage(self,next_stage, mysim, jid_depends=None):
         """Write a bash script and submit, which will execute next stage
