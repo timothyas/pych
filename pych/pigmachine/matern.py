@@ -19,19 +19,35 @@ def calc_variance(Nx,ndims=2):
     denom = gamma(nu+ndims/2)*((4*np.pi)**(ndims/2))*(delta_hat**(nu))
     return gamma(nu)/denom
 
+def _getL(ds):
+    """get horizontal length scale"""
+    if isinstance(ds,xr.core.dataarray.DataArray):
+        ds = ds.to_dataset(name='tmp')
+
+    if 'rA' in ds:
+        L = np.sqrt(ds['rA'])
+    elif 'dyG' in ds:
+        L = ds['dyG']
+    elif 'dxG' in ds:
+        L = ds['dxG']
+    else:
+        raise NotImplementedError('Other length scales not recognized')
+    return L
+
 def get_alpha(ds):
     """Return the grid-define aspect ratio
     alpha = drF/sqrt(rA)
 
     """
-    xda = ds['drF'] / np.sqrt(ds['rA'])
+    L = _getL(ds)
+    xda = ds['drF'] / L
     xda.name = 'alpha'
     return xda
 
 def getPhi(mymask,xi=1):
     """Return Jacobian of deformation tensor as a dict
 
-              ux   0   0 
+              ux   0   0
         Phi = 0   vy   0
               0    0  wz
 
@@ -46,7 +62,7 @@ def getPhi(mymask,xi=1):
 
     ndims = len(mymask.dims)
 
-    L = np.sqrt(mymask['rA']).broadcast_like(mymask)
+    L = _getL(mymask).broadcast_like(mymask)
     H = mymask['drF'].broadcast_like(mymask) if 'drF' in mymask.coords else xr.ones_like(mymask)
 
     xi = xi*xr.ones_like(mymask)
@@ -54,7 +70,7 @@ def getPhi(mymask,xi=1):
     ux = xi*L
     vy = xi*L
     wz = H
-    
+
     if ndims==2:
         if set(('XC','YC')).issubset(mymask.dims):
             return {'ux':ux/xi,'vy':vy/xi}
@@ -84,15 +100,16 @@ def get_cell_volume(mymask):
     for the white noise process"""
 
     ndims = len(mymask.dims)
+    L = _getL(mymask)
     if ndims==2:
         if set(('XC','YC')).issubset(mymask.dims):
-            return mymask['rA']
+            return L**2
         elif set(('YC','Z')).issubset(mymask.dims):
-            return mymask['drF']*np.sqrt(mymask['rA'])
+            return mymask['drF']*L
         elif set(('XC','Z')).issubset(mymask.dims):
-            return mymask['drF']*np.sqrt(mymask['rA'])
+            return mymask['drF']*L
     else:
-        return mymask['drF']*mymask['rA']
+        return mymask['drF']*L**2
 
 def get_matern(Nx,mymask,xi=1):
 
@@ -180,7 +197,7 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,xi=1):
 
 def get_matern_dataset(run_dir,smoothOpNb,xdalike,sample_num=None,
                        read_filternorm=True):
-    
+
     ndims = len(xdalike.dims)
     if read_filternorm:
         smooth_mean = read_mds(f'{run_dir}/smooth{ndims}Dmean{smoothOpNb:03}',
