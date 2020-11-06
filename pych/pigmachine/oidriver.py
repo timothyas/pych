@@ -66,6 +66,7 @@ class OIDriver:
     jacobi_max_iters = 20000
     conda_env = 'py38_tim'
     doRegularizeDebug = False
+    doRayleigh = False
     def __init__(self, experiment,stage=None):
         """Should this initialize? Or do we want another method to do it?
 
@@ -246,7 +247,8 @@ class OIDriver:
         possible_stages = ['range_approx_one','range_approx_two',
                            'basis_projection_one','basis_projection_two',
                            'do_the_evd','prior_to_misfit',
-                           'solve_for_map','save_the_map']
+                           'solve_for_map','save_the_map',
+                           'calc_rayleigh']
 
         if stage in possible_stages:
             self.pickup()
@@ -662,7 +664,7 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
 
-        evds = _add_map_fields(evds,self.sigma,self.doRegularizeDebug)
+        evds = _add_map_fields(evds,self.sigma,self.doRegularizeDebug,self.doRayleigh)
 
         jid_list = []
         for Nx in self.NxList:
@@ -729,6 +731,7 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.expWithInitGuess}_map.nc')
         evds['filternorm'].load();
 
+        jid_list = []
         for Nx in self.NxList:
             for xi in self.xiList:
 
@@ -740,6 +743,11 @@ class OIDriver:
                 filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
 
                 C,K = matern.get_matern(Nx=Nx,mymask=self.ctrl.mask,xi=xi)
+
+                # for rayleigh quotients, get eigenvectors of Hessian (not PPMH)
+                if self.doRayleigh:
+                    jid,sim = self.get_vm(evds.V,C['randNorm'],Nx,xi)
+                    jid_list.append(jid)
 
                 ds = matern.get_matern_dataset(read_dir,
                                                smoothOpNb=self.smoothOpNb,
@@ -776,7 +784,6 @@ class OIDriver:
                                 Nx=Nx,xi=xi,sigma=s,m_update=m_update,
                                 C=C,K=K)
 
-
                     # --- Compute misfits, and weighted version
                     misfits = evds['F'].values @ mmap - self.obs_mean
                     misfits_model_space = rp.to_xda( \
@@ -796,6 +803,13 @@ class OIDriver:
 
         evds.to_netcdf(self.dirs['netcdf']+f'/{self.expWithInitGuess}_map.nc')
 
+        if self.doRayleigh:
+            self.submit_next_stage(next_stage='calc_rayleigh',
+                                   jid_depends=jid_list,mysim=sim)
+
+# ---------------------------------------------------------------------
+# Some optional stuff to compute for post-process analysis
+# ---------------------------------------------------------------------
     def regular_debug_plots(self,evds,Nx,xi,sigma,m_update,C,K):
 
         # --- Extra regularization terms
@@ -826,6 +840,105 @@ class OIDriver:
             evds['reg_S_laplacian'].loc[{'sigma':sigma,'xi':xi,'Nx':Nx}]= \
                     np.linalg.norm(rslap,ord=2)
         return evds
+
+    def get_vm(self,V,randNorm,Nx,xi):
+        """get eigenvectors of inverse covariance matrix, i.e. the generalized
+        eigenvectors of the matrix pair (Hm, \Gamma_{prior}^{-1})
+
+            v^m_i = \Gamma_{prior}^{1/2} v_i
+
+        where v_i are eigenvectors of prior preconditioned misfit Hessian
+        This just does the first part:
+
+            v^1_i = A^{-1}T v_i
+
+        v^m_i = Sigma X v^1_i
+        is computed in calc_rayleigh
+        """
+        # --- Prepare directories
+        _, write_dir, run_dir = self._get_dirs('get_vm',Nx,xi)
+
+        # --- Apply prior^T/2
+        smooth2DInput = []
+        for i in V.rand_ind.values:
+            Tvi = randNorm * self.ctrl.unpack(V.sel(rand_ind=i,Nx=Nx,xi=xi))
+            smooth2DInput.append(Tvi)
+
+        # --- Apply prior half
+        smooth2DInput = xr.concat(smooth2DInput,dim='sample')
+        self.smooth_writer(write_dir, xi=xi, num_inputs=len(V.rand_ind))
+
+        jid,sim = self.submit_matern(fld=smooth2DInput,
+                                     Nx=Nx,xi=xi,
+                                     write_dir=write_dir,
+                                     run_dir=run_dir,
+                                     run_suff='gvm')
+        return jid, sim
+
+    def calc_rayleigh(self):
+        """Compute Rayleigh quotients of misfit Hessian and inverse prior
+        components of the GN posterior:
+
+            Rm(i) = <v_i , Hm v_i> / <v_i,v_i>
+            Rp(i) = <v_i , \Gamma^{-1}_prior v_i> / <v_i,v_i>
+
+        where v_i are eigenvectors of inverse posterior covariance
+        """
+        def _ray_fields(ds):
+            ds['Vm'] = xr.zeros_like(ds['sigma']*ds['V'])
+            ds['Rm'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
+            ds['Rp'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
+            return ds
+
+        evds = xr.open_dataset(self.dirs['netcdf']+f'/{self.expWithInitGuess}_map.nc')
+
+        evds['filternorm'].load();
+        evds['V'].load();
+
+        # tmporary...
+        evds=_ray_fields(evds) if 'Vm' not in evds else evds
+
+        for Nx in self.NxList:
+            for xi in self.xiList:
+                read_dir, _, _ = self._get_dirs('calc_rayleigh',Nx,xi)
+
+                # --- Get arrays
+                X = evds['filternorm'].sel(Nx=Nx,xi=xi).values
+                filternorm = self.ctrl.unpack(X)
+
+                # --- load first part from get_vm
+                ds = matern.get_matern_dataset(read_dir,
+                                               smoothOpNb=self.smoothOpNb,
+                                               xdalike=self.mymodel,
+                                               sample_num=np.arange(self.n_rand),
+                                               read_filternorm=False)
+                ds = ds.sortby(list(self.mymodel.dims))
+                ds['ginv'].load();
+
+                SXATV = evds['sigma']*filternorm*ds['ginv']
+
+                # get misfit hessian
+                FtWF = (evds['F'].values.T * self.obs_var_inv) @ evds['F'].values
+
+                for ri in evds.rand_ind.values:
+                    V = evds['V'].sel(Nx=Nx,xi=xi,rand_ind=ri).values
+                    pri_numer = V.T @ V
+
+                    for s in self.sigma:
+                        Vm = self.ctrl.pack(SXATV.sel(sigma=s,sample=ri))
+                        evds['Vm'].loc[{'Nx':Nx,'xi':xi,'sigma':s,'rand_ind':ri}]=Vm
+
+                        # get misfit rayleigh
+                        numer = Vm.T @ FtWF @ Vm
+                        denom = Vm.T @ Vm
+
+                        evds['Rm'].loc[{'Nx':Nx,'xi':xi,'sigma':s,'rand_ind':ri}] =\
+                                numer/denom
+                        evds['Rp'].loc[{'Nx':Nx,'xi':xi,'sigma':s,'rand_ind':ri}] =\
+                                pri_numer/denom
+
+        evds.to_netcdf(self.dirs['netcdf']+f'/{self.expWithInitGuess}_ray.nc')
+
 
 # ---------------------------------------------------------------------
 # Stuff for organizing each stage of the run
@@ -983,6 +1096,14 @@ class OIDriver:
             read_str = self.expWithInitGuess + '/map'
             write_str = None
 
+        elif stage == 'get_vm':
+            read_str = None
+            write_str = self.experiment + '/gvm'
+
+        elif stage == 'calc_rayleigh':
+            read_str = self.experiment + '/gvm'
+            write_str = None
+
         else:
             raise NameError(f'Unexpected stage for directories: {stage}')
 
@@ -1038,6 +1159,11 @@ def _add_map_fields(ds,sigma,doRegularizeDebug):
         ds['reg_laplacian'] = xr.zeros_like(bfn)
         ds['reg_S_delta'] = xr.zeros_like(bfn)
         ds['reg_S_laplacian'] = xr.zeros_like(bfn)
+
+    if doRayleigh:
+        ds['Vm'] = xr.zeros_like(ds['sigma']*ds['V'])
+        ds['Rm'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
+        ds['Rp'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
 
     # --- some descriptive attributes
     for fld in ds.keys():
