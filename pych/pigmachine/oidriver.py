@@ -1131,7 +1131,7 @@ def _dir(dirname):
     return dirname
 
 
-def _add_map_fields(ds,sigma,doRegularizeDebug):
+def _add_map_fields(ds,sigma,doRegularizeDebug,doRayleigh):
     """Helper routine to define some container fields
 
     """
