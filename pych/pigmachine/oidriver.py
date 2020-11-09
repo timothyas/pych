@@ -1066,10 +1066,10 @@ class OIDriver:
 
         if stage == 'range_approx_one':
             read_str  = None
-            write_str = 'matern'
+            write_str = 'maternC' if 'uvel' not in self.experiment else 'maternW'
 
         elif stage == 'range_approx_two':
-            read_str  = 'matern'
+            read_str  = 'maternC' if 'uvel' not in self.experiment else 'maternW'
             write_str = self.experiment + '/range2'
 
         elif stage == 'basis_projection_one':
