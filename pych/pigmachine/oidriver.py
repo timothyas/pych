@@ -664,7 +664,7 @@ class OIDriver:
         evds = xr.open_dataset(self.dirs['nctmp']+f'/{self.experiment}_evd.nc')
         evds['filternorm'].load();
 
-        evds = _add_map_fields(evds,self.sigma,self.doRegularizeDebug,self.doRayleigh)
+        evds = _add_map_fields(evds,self.sigma,self.doRegularizeDebug)
 
         jid_list = []
         for Nx in self.NxList:
@@ -1131,7 +1131,7 @@ def _dir(dirname):
     return dirname
 
 
-def _add_map_fields(ds,sigma,doRegularizeDebug,doRayleigh):
+def _add_map_fields(ds,sigma,doRegularizeDebug):
     """Helper routine to define some container fields
 
     """
@@ -1159,11 +1159,6 @@ def _add_map_fields(ds,sigma,doRegularizeDebug,doRayleigh):
         ds['reg_laplacian'] = xr.zeros_like(bfn)
         ds['reg_S_delta'] = xr.zeros_like(bfn)
         ds['reg_S_laplacian'] = xr.zeros_like(bfn)
-
-    if doRayleigh:
-        ds['Vm'] = xr.zeros_like(ds['sigma']*ds['V'])
-        ds['Rm'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
-        ds['Rp'] = xr.zeros_like(ds['Vm'].isel(ctrl_ind=0).drop_vars('ctrl_ind'))
 
     # --- some descriptive attributes
     for fld in ds.keys():
