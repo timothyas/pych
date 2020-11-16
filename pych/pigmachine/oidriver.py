@@ -960,8 +960,8 @@ class OIDriver:
             f' {smooth}Dims({self.smoothOpNb})=\'{self.smooth2DDims}\',\n'+\
             f' {smooth}Algorithm({self.smoothOpNb})=\'{alg}\',\n'+\
             f' {smooth}NbRand({self.smoothOpNb})={num_inputs},\n'+\
-            f' {smooth}JacobiMaxIters(1) = {self.jacobi_max_iters},\n'+\
-            f' {smooth}SOROmega(1) = {sor},\n'+\
+            f' {smooth}JacobiMaxIters({self.smoothOpNb}) = {self.jacobi_max_iters},\n'+\
+            f' {smooth}SOROmega({self.smoothOpNb}) = {sor},\n'+\
             ' &'
         fname = write_dir+f'/data.smooth'
         with open(fname,'w') as f:
