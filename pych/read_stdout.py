@@ -7,7 +7,7 @@ import re
 import pandas as pd
 import numpy as np
 
-def read_jacobi_iters(filepath):
+def read_jacobi_iters(filepath,which_jacobi='YZ'):
     """
     Parse jacobi iters from STDOUT file
 
@@ -15,6 +15,9 @@ def read_jacobi_iters(filepath):
     ----------
     filepath : str
         path to STDOUT.* file
+    which_jacobi : str, optional
+        which output to read...
+        options are: ['2D','3D','YZ','XZ']
 
     Returns
     -------
@@ -22,9 +25,10 @@ def read_jacobi_iters(filepath):
         with number of iterations to solve the linear system that is
         smoothNbRand long (usually 1000)
     """
-
+    which_jacobi = 'SMOOTH_JACOBI_'+which_jacobi
     re_dict = {
-        'iters': re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+SMOOTH_JACOBI_YZ:\sfinal\siter\:\s+(\d+)\s+final\serror:\s+\d+\.\d+E?.?\d+')}
+        'iters': re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+'+which_jacobi+\
+            ':\sfinal\siter\:\s+(\d+)\s+final\serror:\s+\d+\.\d+E?.?\d+')}
 
     # Parse line by line, when get to the 'timing' part of the STDOUT file
     # first grab the "section"= the part of the code timing is counted toward
@@ -94,7 +98,7 @@ def read_grdchk_from_stdout(filepath):
     -------
     grdchk_data : pandas.DataFrame
         grdchk output as a pandas Dataframe
-        
+
     """
 
     # Step 1: define regular expression dictionary
@@ -164,7 +168,7 @@ def read_grdchk_from_stdout(filepath):
             if key == 'grad_ad':
                 grad_ad = match.group(1)
                 grad_ad = float(grad_ad)
-    
+
             if key == 'stop':
                 # This key indicates that we've found all the info
                 # for this gradient check index
