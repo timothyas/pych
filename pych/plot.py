@@ -16,6 +16,99 @@ import ecco_v4_py as ecco
 
 from matplotlib.ticker import MultipleLocator
 
+from .utils import get_cmap_rgb
+
+def plot_logbin(xda,nbins=3,bin_edges=None,
+                ax=None,
+                cmap='RdBu_r',
+                cbar_label=None,
+                **kwargs):
+    """Make a plot, binning field by log10 of values
+
+    Parameters
+    ----------
+    xda : xarray.DataArray
+        field to be plotted, must be 2D
+    nbins : int, optional
+        number of colored bin (centers) positive and negative values
+        i.e. we get 2*nbins+1, bins. one is neutral (middle)
+    bin_edges : array-like, optional
+        exclusive with nbins, specify bin edges (positive only)
+    ax : matplotlib.axes, optional
+        to make plot at
+    cmap : str, optional
+        specifies colormap
+    cbar_label : str, optional
+        label for colorbar, default grabs units from DataArray
+    kwargs
+        passed to matpotlib.pyplot.contourf
+
+    Returns
+    -------
+    ax : matplotlib.axes
+        if one is not provided
+    """
+    return_ax = False
+    if ax is None:
+        _,ax = plt.subplots()
+        return_ax=True
+
+    if nbins is not None and bin_edges is not None:
+        raise TypeError('one or the other')
+
+    log = np.log10(np.abs(xda))
+    log = log.where((~np.isnan(log)) & (~np.isinf(log)),0.)
+    if nbins is not None:
+        _,bin_edges = np.histogram(log,bins=nbins)
+    else:
+        nbins = len(bin_edges)-1
+    logbins=np.round(bin_edges)
+
+    # determine if colorbar will be extended
+    maxExtend = (xda>10**logbins[-1]).any().values
+    minExtend = (xda<-10**logbins[-1]).any().values
+    extend='neither'
+    if minExtend and maxExtend:
+        extend='both'
+    elif maxExtend:
+        extend='max'
+    elif minExtend:
+        extend='min'
+
+    # determine number of colors, adding one for each extension
+    # and always one extra, the middle color bin
+    ncolors=2*nbins+1
+    ncolors = ncolors+1 if maxExtend else ncolors
+    ncolors = ncolors+1 if minExtend else ncolors
+
+    # if only one end is extended,
+    # chop off the extreme value from the other end to fit
+    # in the middle (neutral) colorbin
+    if extend in ['min' ,'max']:
+        cmap = get_cmap_rgb(cmap,ncolors+1)
+        bot =  np.arange(1,nbins+1) if extend=='max' else np.arange(0,nbins+1)
+        top = np.arange(ncolors-nbins,ncolors) if extend=='min' else np.arange(ncolors-nbins,ncolors+1)
+        index = list(bot)+[nbins+1]+list(top)
+        cmap = cmap[index,:]
+    else:
+        cmap=get_cmap_rgb(cmap,ncolors)
+
+    # levels and plot
+    levels=10**logbins
+    levels = np.concatenate([-levels[::-1],levels],axis=0)
+    im=ax.contourf(xda,levels=levels,colors=cmap,extend=extend,**kwargs)
+
+    # label dem ticks
+    if cbar_label==None and 'units' in xda.attrs:
+            cbar_label=f'[{xda.attrs["units"]}]'
+    p=plt.colorbar(im,ax=ax,label=cbar_label)
+    ticklabels = [f'-10^{b:.0f}' for b in logbins[::-1]]
+    ticklabels += [f'10^{b:.0f}' for b in logbins]
+    p.set_ticklabels(ticklabels)
+
+    if return_ax:
+        return ax
+
 def nice_inward_ticks(ax,
                       xminor_skip=None,yminor_skip=None):
     """Make nice inward pointing ticks
@@ -56,7 +149,7 @@ def fill_between_std(x,ymean,ystd,
     ax.plot(x,ymean,**kwargs) if ax is not None else plt.plot(x,ymean,**kwargs)
     ax.fill_between(x,ymean-ystd,ymean+ystd,**fill_kwargs) if ax is not None else \
          plt.fill_between(x,ymean-ystd,ymean+ystd,**fill_kwargs)
-    
+
 def plot_section(fld, left, right,
                  datasets, grids,
                  labels=None,
@@ -89,7 +182,7 @@ def plot_section(fld, left, right,
     plot_diff0 : bool, optional
         plot difference between first dataset and all others
     plot_sections_at_bottom : bool, optional
-        if True, add a row at the bottom showing the section line 
+        if True, add a row at the bottom showing the section line
         for each field
     single_plot : bool, optional
         if True, plot all fields on one plot, better be 1D
@@ -226,7 +319,7 @@ def plot_zlev_with_max(xda,use_mask=True,ax=None,xr_kwargs={}):
 
     xda_max = np.abs(xda).max()
     x,y,mask = _get_coords_and_mask(xda.coords)
-        
+
     # get X, Y, Z of max value
     xda_maxloc = xda.where(xda==xda_max,drop=True)
     if len(xda_maxloc)==0:
@@ -273,7 +366,7 @@ def horizontal_map(x,y,fld1,fld2=None,
         depth:      depth field as an xarray DataArray to be used as
                     plt.contour(depth.XC,depth.YC,depth.Depth)
         log_data:   plot log_10(fld)
-        mask1/2:    mask field to with given mask array 
+        mask1/2:    mask field to with given mask array
         ncolors:    Number of colors for colormap
         c_lim:      two element array with colorbar limits
         c_lim1/2:   different colorbar limits for each plot
@@ -281,7 +374,7 @@ def horizontal_map(x,y,fld1,fld2=None,
         cmap:       string or colormap object
                     default for sequential data is 'YlGnBu_r'
                     default for diverging data is 'BuBG_r'
-        cmap1/2:    similar logic for c_lim, c_lim1/2. 
+        cmap1/2:    similar logic for c_lim, c_lim1/2.
                     cmap is global, cmap1/2 are for individual plots
     Returns
     -------
@@ -305,16 +398,16 @@ def horizontal_map(x,y,fld1,fld2=None,
 
 
     fig = plt.figure(figsize=(15,6))
-    
-    
+
+
     plt.subplot(1,2,1)
     _single_horizontal_map(x,y,fld1,title1,depth,log_data,mask1,ncolors,c_lim1,cmap1)
-    
+
     if fld2 is not None:
         plt.subplot(1,2,2)
         _single_horizontal_map(x,y,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
-    
-    plt.show() 
+
+    plt.show()
 
     return fig
 
@@ -340,7 +433,7 @@ def depth_slice(x,z,fld1,fld2=None,
         depth:      depth field as an xarray DataArray to be used as
                     plt.contour(depth.XC,depth.YC,depth.Depth)
         log_data:   plot log_10(fld)
-        mask1/2:    mask field to with given mask array 
+        mask1/2:    mask field to with given mask array
         ncolors:    Number of colors for colormap
         c_lim:      two element array with colorbar limits
         c_lim1/2:   different colorbar limits for each plot
@@ -348,7 +441,7 @@ def depth_slice(x,z,fld1,fld2=None,
         cmap:       string or colormap object
                     default for sequential data is 'YlGnBu_r'
                     default for diverging data is 'BuBG_r'
-        cmap1/2:    similar logic for c_lim, c_lim1/2. 
+        cmap1/2:    similar logic for c_lim, c_lim1/2.
                     cmap is global, cmap1/2 are for individual plots
     Returns
     -------
@@ -371,21 +464,21 @@ def depth_slice(x,z,fld1,fld2=None,
         cmap2 = cmap
 
     fig = plt.figure(figsize=(15,6))
-    
-    
+
+
     plt.subplot(1,2,1)
     _single_depth_slice(x,z,fld1,title1,depth,log_data,mask1,ncolors,c_lim1,cmap1)
-    
+
     if fld2 is not None:
         plt.subplot(1,2,2)
         _single_depth_slice(x,z,fld2,title2,depth,log_data,mask2,ncolors,c_lim2,cmap2)
-    
-    plt.show() 
+
+    plt.show()
 
     return fig
 
 
-def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
+def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap):
     """
     Non-user facing function to distill horizontal data to numpy array for plotting
     """
@@ -403,7 +496,7 @@ def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cm
     else:
         # Assume xarray DataArray
         if 'time' in fld.dims:
-            print('Warning: Time dimension present, grabbing first record')     
+            print('Warning: Time dimension present, grabbing first record')
             fld=fld.isel(time=0)
 
         if 'Z' in fld.dims:
@@ -425,7 +518,7 @@ def _single_horizontal_map(x,y,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cm
 
     _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
 
-def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
+def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap):
     """
     Non-user facing function to distill depth slice data to numpy array for plotting
     """
@@ -443,7 +536,7 @@ def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
     else:
         # Assume xarray DataArray
         if 'time' in fld.dims:
-            print('Warning: Time dimension present, grabbing first record')     
+            print('Warning: Time dimension present, grabbing first record')
             fld=fld.isel(time=0)
 
         # Can't do this for other dimensions because who knows what they will be
@@ -464,7 +557,7 @@ def _single_depth_slice(x,z,fld,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
     _nice_plot(x,z,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap)
 
 
-def _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap): 
+def _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap):
     """
     Generic plotting routine for pcolormesh
     """
@@ -513,11 +606,11 @@ def _nice_plot(x,y,fld_values,titleStr,depth,log_data,mask,ncolors,c_lim,cmap):
                    cmap=cmap)
                    #shading='gouraud')
     plt.colorbar(extend=extend_cbar)
-    
+
     # If depth given, overlay bathymetry contours
     if depth is not None:
         plt.contour(depth.XC,depth.YC,depth.Depth,colors='0.5')
-    
+
     if titleStr is not None:
         plt.title(titleStr)
 
