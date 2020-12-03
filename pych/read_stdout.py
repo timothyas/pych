@@ -48,6 +48,44 @@ def read_jacobi_iters(filepath,which_jacobi='YZ'):
 
     return np.array(iters)
 
+def read_stdout_monitor(filepath):
+    """
+    Parse monitor fields from STDOUT
+
+    Parameters
+    ----------
+    filepath : str
+        path to STDOUT.* file
+
+    Returns
+    -------
+    monitor : dict
+        dictionary containing monitor values for each section of code
+    """
+
+    monitor={}
+    for ftype in ['fCori','dynstat','forcing','trAdv','obc','ad_']:
+        re_dict = {
+            'section':
+re.compile(r'\(\w+\.\w+\s\d+\.\d+\)\s+\%MON\s('+ftype+'\w+)\s+=\s+(-?\w+\.\w+-?\+?\w+)')
+        }
+
+        # Parse line by line, when get to the 'timing' part of the STDOUT file
+        # first grab the "section"= the part of the code timing is counted toward
+        # then the lines after that give the time, grab the Wall Clock Time
+        line_dict = {'section':[],'value':[]}
+        mymon = {}
+        with open(filepath,'r') as f:
+            for line in f:
+                key, val = _parse_line(line,re_dict)
+                if key is not None:
+                    mymon[val.group(1)] = np.double(val.group(2))
+
+        monitor[ftype]=mymon
+
+
+    return monitor
+
 def read_stdout_timing(filepath):
     """
     Parse timing from STDOUT file
