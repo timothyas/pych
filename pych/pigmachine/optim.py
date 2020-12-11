@@ -38,8 +38,8 @@ class OptimDriver:
     genarr2d_nml=''
     genarr3d_nml=''
     gentim2d_nml=''
-    ctrl_packname='pigmachine_ctrl'
-    cost_packname='pigmachine_cost'
+    ctrl_packname='pm_ctrl'
+    cost_packname='pm_cost'
     def __init__(self, experiment,stage=None,optim_iter=None):
         """Should this initialize? Or do we want another method to do it?
 
@@ -51,7 +51,7 @@ class OptimDriver:
             1. the control vector
             2. potentially any uncertainty info different than "normal"
         stage : str, optional
-            the optimization iteration, and "gcm" or "optim" for starting
+            the optimization iteration, and "gcm" or "m1qn3" for starting
             with the MITgcm run, or the optimization step for that iter
         optim_iter : int, optional
             iteration number
@@ -77,7 +77,8 @@ class OptimDriver:
         """
 
         # --- make some dirs
-        for mydir in ['json',main_dir]:
+        slurm_dir = os.path.join(main_dir,'slurm')
+        for mydir in ['json',main_dir,slurm_dir]:
             _dir(mydir);
 
         # --- Write the directories
@@ -87,7 +88,7 @@ class OptimDriver:
                 json.dump(mydict, f)
 
         # make dirs dict, for now?
-        dirs={'main_dir':main_dir}
+        dirs={'main_dir':main_dir,'slurm_dir':slurm_dir}
         write_json(dirs,'_dirs.json')
         write_json(dsim,'_sim.json')
         if kwargs !={}:
@@ -120,6 +121,7 @@ class OptimDriver:
 
         # --- Carry these things around
         self.main_dir = dirs['main_dir']
+        self.slurm_dir=dirs['slurm_dir']
         self.dsim = dsim
 
         # --- If kwargs exist, use to rewrite default attributes
@@ -131,7 +133,7 @@ class OptimDriver:
 # Methods for organizing each stage
 # ----------------------------------------------------------------
     def _send_to_stage(self,stage,optim_iter):
-        possible_stages = ['gcm','optim']
+        possible_stages = ['gcm','m1qn3']
 
         if stage in possible_stages:
             self.pickup()
@@ -176,7 +178,7 @@ class OptimDriver:
     def write_bash_script(self,stage,optim_iter,mysim):
         """Write a bash script for the next experiment stage
         """
-        name=f'optim{optim_iter:03d}'
+        name=f'optim{optim_iter:03d}_{stage}'
         file_contents = '#!/bin/bash\n\n' +\
             f'#SBATCH -J {name}\n' +\
             f'#SBATCH -o {name}.%j.out\n' +\
@@ -191,6 +193,9 @@ class OptimDriver:
                 f'python3 -c '+\
                 '"from pych.pigmachine import OptimDriver;'+\
                 f'optim = OptimDriver(\'{self.experiment}\',\'{stage}\',{optim_iter})"\n'
+
+        # get current directory, move slurm output to slurm_dir
+        file_contents+=f'\nmv $SLURM_JOB_NAME.$SLURM_JOB_ID.* {self.slurm_dir}/'
 
         fname = os.path.join(self.main_dir,f'submit_{self.experiment}.sh')
         with open(fname,'w') as f:
@@ -219,10 +224,10 @@ class OptimDriver:
         sim.write_slurm_script()
         jid = sim.submit_slurm(**self.slurm)
 
-        self.submit_next_stage(next_stage='optim',optim_iter=optim_iter,
+        self.submit_next_stage(next_stage='m1qn3',optim_iter=optim_iter,
                                jid_depends=jid,mysim=sim)
 
-    def run_optim(self,optim_iter):
+    def run_m1qn3(self,optim_iter):
         print(' -- run_optim --')
         print(self.__dict__)
 
