@@ -15,10 +15,12 @@ from .moorings import (make_mooring_obs,
 
 from .oidriver import OIDriver
 
+from .optim import OptimDriver
+
 from .plot import (
         stereo_plot,
         plot_map_and_misfits, plot_lcurve_discrep)
 
 from .time import calc_variability
 
-__all__ = ['io','interp_obcs','matern','moorings','OIDriver','plot','time']
+__all__ = ['io','interp_obcs','matern','moorings','OIDriver','OptimDriver','plot','time']
