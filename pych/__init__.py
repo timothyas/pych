@@ -21,7 +21,8 @@ from .read_stdout import (
         read_jacobi_iters, read_stdout_monitor,
         read_stdout_timing, read_grdchk_from_stdout)
 
-from .utils import get_cmap_rgb, search_and_replace
+from .utils import (get_cmap_rgb, search_and_replace,
+        write_m1qn3_makefile)
 
 __all__ = ['plot','calc','interp_section','mitgcm_utils','read_stdout',
            'shelfice','utils']
