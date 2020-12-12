@@ -54,20 +54,29 @@ def search_and_replace(fname,search,replace):
 
 def write_m1qn3_makefile(write_dir,mitgcm_src,mitgcm_build,Nctrl,
                    compiler='ifort',template='Makefile.template'):
-    md = 'makedepend'
-    md=md if which('makedepend') is not None else os.path.join(mitgcm_src,'tools','x'+md)
-    md='MAKEDEPEND='+md+'\n'
-    fc = f'FC = {compiler}\n'
-
-    flagdict = {'gfortran':'-fconvert=big-endian',
-              'ifort':'-mieee-fp -132 -r8 -i4 -W0 -WB -CB -fpe0 -traceback -convert big_endian -assume byterecl'}
-    if compiler not in flagdict.keys():
-        raise NotImplementedError("see mjlosch/m1qn3 comments in Makefile and implement")
-    fflags = 'FFLAGS='+flagdict[compiler]+'\n'
 
     max_independ = f'    -DMAX_INDEPEND={Nctrl}\t\t\\\n'
 
     build_include = '\t\t-I'+mitgcm_build+'\n'
+
+    # --- Get FC (compiler) and FFLAGS from mitgcm_build/Makefile
+    fflags=None
+    fc=None
+    md=None
+    with open(os.path.join(mitgcm_build,'Makefile'),'r') as f:
+        for line in f.readlines():
+            if "F77_SRC_FILES" in line:
+                break
+            elif "FFLAGS =" in line or "FFLAGS=" in line:
+                fflags=line
+            elif "FC =" in line or "FC=" in line:
+                fc=line
+            elif "MAKEDEPEND =" in line or "MAKEDEPEND=" in line:
+                md=line
+
+    for fld,name in zip([fflags,fc,md],['FFLAGS','FC','MAKEDEPEND']):
+        if fld is None:
+            raise TypeError(f'Could not find {name} from Makefile in {mitgcm_build}')
 
     file_content=''
     with open(template,'r') as f:
