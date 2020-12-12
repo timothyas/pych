@@ -27,19 +27,38 @@ class OptimDriver:
 
     To pick up at a specific stage, e.g. specified by the string mystage
 
-        >>> myoi = OIDriver('myoi',stage=mystage)
+        >>> myoi = OIDriver('myoi',stage=mystage,optim_iter=optimcycle)
 
     """
     slurm = {'be_nice':True,
              'max_job_submissions':9,
              'dependency':'afterany'}
     conda_env = 'py38_tim'
+    optim_iter_max = 1000
+    g0 = 1000
+
+    # Control Package
     obcs_nml=''
     genarr2d_nml=''
     genarr3d_nml=''
     gentim2d_nml=''
     ctrl_packname='pm_ctrl'
     cost_packname='pm_cost'
+
+    # Optim m1qn3
+    dfminFrac   = 0.1   # cold start, expected fractional reduction in cost
+    numiter     = 100   # max num. iterations to determine step direction
+    nfunc       = 100   # max num. fun calls (mitgcmuv_ad) per iter
+    epsg        = 1e-6  # stopping criterion for ||g_k||/||g_0||
+    nupdate     = 8     # number of gradients and ctrl vectors to approx Hess.Inv.
+                        # this is m in m1qn3 documentation
+                        # m1qn3 requires working vector of size:
+                        # ndz = nupdate*(2*Nctr l+ 1) + 4*Nctrl
+
+    iprint      = 5     # how much to print, 5 is max printing
+    epsx        = 1e-6  # if sup. norm is used, minimum resolution for ctrl vector
+                        # for two points to be indistinguishable
+    eps         = -1    # if >0, overwrites epsg and epsx
     def __init__(self, experiment,stage=None,optim_iter=None):
         """Should this initialize? Or do we want another method to do it?
 
@@ -74,6 +93,9 @@ class OptimDriver:
             see rosypig.Simulation for details
         kwargs
             Are passed to override the default class attributes
+            Additionally:
+            optimx : str, optional
+                path to m1qn3 executable, default is main_dir/build.m1qn3/optim.x
         """
 
         # --- make some dirs
@@ -81,18 +103,11 @@ class OptimDriver:
         for mydir in ['json',main_dir,slurm_dir]:
             _dir(mydir);
 
-        # --- Write the directories
-        def write_json(mydict,mysuff):
-            json_file = f'json/{self.experiment}'+mysuff
-            with open(json_file,'w') as f:
-                json.dump(mydict, f)
-
-        # make dirs dict, for now?
         dirs={'main_dir':main_dir,'slurm_dir':slurm_dir}
-        write_json(dirs,'_dirs.json')
-        write_json(dsim,'_sim.json')
+        self.write_json(dirs,'_dirs.json')
+        self.write_json(dsim,'_gcm_sim.json')
         if kwargs !={}:
-            write_json(kwargs,'_kwargs.json')
+            self.write_json(kwargs,'_kwargs.json')
 
         # --- "pickup" experiment at startat
         self.pickup()
@@ -105,29 +120,34 @@ class OptimDriver:
         """Read in the files saved in start, prepare self for next stage
         """
 
-        # --- Read
-        def read_json(mysuff):
-            json_file = f'json/{self.experiment}' + mysuff
-            if not os.path.isfile(json_file):
-                return None
-
-            with open(json_file,'r') as f:
-                mydict = json.load(f)
-            return mydict
-
-        dirs = read_json('_dirs.json')
-        dsim = read_json('_sim.json')
-        kwargs = read_json('_kwargs.json')
+        dirs = self.read_json('_dirs.json')
+        dsim = self.read_json('_gcm_sim.json')
+        kwargs = self.read_json('_kwargs.json')
 
         # --- Carry these things around
         self.main_dir = dirs['main_dir']
         self.slurm_dir=dirs['slurm_dir']
         self.dsim = dsim
+        self.optimx = os.path.join(self.main_dir,'build.m1qn3','optim.x')
 
         # --- If kwargs exist, use to rewrite default attributes
         if kwargs is not None:
             for key,val in kwargs.items():
                 self.__dict__[key] = val
+
+    # --- Write/Read dictionaries to start/pickup
+    def write_json(self,mydict,mysuff):
+        json_file = os.path.join('json',self.experiment+mysuff)
+        with open(json_file,'w') as f:
+            json.dump(mydict, f)
+
+    def read_json(self,mysuff):
+        json_file = os.path.join('json',self.experiment+mysuff)
+        if not os.path.isfile(json_file):
+            return None
+        with open(json_file,'r') as f:
+            mydict = json.load(f)
+        return mydict
 
 # ----------------------------------------------------------------
 # Methods for organizing each stage
@@ -221,6 +241,12 @@ class OptimDriver:
 
         # 3. link and launch
         sim.link_to_run_dir()
+        if optim_iter>0:
+            fname=self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}'
+            src = os.path.join(self.get_run_dir(optim_iter-1),fname)
+            destination=os.path.join(run_dir,fname)
+            rp.symlink_force(src,destination)
+
         sim.write_slurm_script()
         jid = sim.submit_slurm(**self.slurm)
 
@@ -228,8 +254,51 @@ class OptimDriver:
                                jid_depends=jid,mysim=sim)
 
     def run_m1qn3(self,optim_iter):
-        print(' -- run_optim --')
-        print(self.__dict__)
+        run_dir = self.get_run_dir(optim_iter)
+
+        # link optim.x to run directory
+        exe = os.path.basename(self.optimx)
+        rp.symlink_force(self.optimx,os.path.join(run_dir,exe))
+
+        # move to run dir and run
+        pwd = os.getenv('PWD')
+        os.chdir(run_dir)
+        run_cmd = f'./{exe} > stdout.m1qn3.{optim_iter:03d}'
+        subprocess.run(run_cmd,shell=True)
+        os.chdir(pwd)
+
+        # read gradient
+        with open(f'{run_dir}/m1qn3_output.txt','r') as f:
+            for line in f.readlines():
+                if 'two-norm of g' in line:
+                    g_norm = float(line.split('=')[1][:-1].replace('D','E'))
+
+        # set ||g0||
+        if optim_iter==0:
+            self.g0 = g_norm
+            self.write_json
+            kwargs = self.read_json('_kwargs.json')
+            kwargs = kwargs if kwargs is not None else {}
+            kwargs['g0'] = g_norm
+            self.write_json(kwargs,'_kwargs.json')
+
+        # submit next optim iter
+        if optim_iter+1 < self.optim_iter_max and g_norm > self.epsg*self.g0:
+            sim=rp.Simulation(**self.dsim)
+            self.submit_next_stage(next_stage='gcm',optim_iter=optim_iter+1, mysim=sim)
+        else:
+            if g_norm < self.epsg * self.g0:
+                print('\t\t---\t\tCongratulations!!\t\t---')
+                print('')
+                print(f'     ||g_{optim_iter}||_2 / ||g_0||_2 < eps_g = {self.epsg}')
+                print('')
+                print(f'            g_norm = {g_norm:1.6e}')
+                print(f'            optim_iter = {optim_iter}')
+
+            else:
+                print(f' --- Reached Maximum Optimization Iterations: {self.optim_iter_max} ---')
+                print(' exiting ...')
+
 
     def get_run_dir(self,optim_iter):
         return os.path.join(self.main_dir,f'run_ad.{optim_iter:03d}')
@@ -266,8 +335,19 @@ class OptimDriver:
 
     def write_optim_namelist(self,optim_iter):
         """write data.optim into run_directory"""
+        dmf = f" dfminFrac = {self.dfminFrac:f}\n" if optim_iter==0 else ""
 
-        nml =   f" &OPTIM\n optimcycle = {optim_iter},\n &"
+        nml =   f" &OPTIM\n "+\
+                f" optimcycle   = {optim_iter},\n"+\
+                dmf+\
+                f" numiter      = {self.numiter},\n"+\
+                f" nfunc        = {self.nfunc},\n"+\
+                f" epsg         = {self.epsg},\n"+\
+                f" nupdate      = {self.nupdate},\n"+\
+                f" iprint       = {self.iprint},\n"+\
+                f" epsx         = {self.epsx},\n"+\
+                f" eps          = {self.eps},\n"+\
+                 " &\n &M1QN3\n &"
         fname = os.path.join(self.get_run_dir(optim_iter),'data.optim')
         with open(fname,'w') as f:
             f.write(nml)
@@ -277,3 +357,15 @@ def _dir(dirname):
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
     return dirname
+
+def _jid_from_pout(pout):
+    # make a string from pout to get jid
+    pout_str = pout.stdout.decode('utf-8').replace('\n','')
+    try:
+        # convert to list of str and grab last one for job ID
+        jid = int(pout_str.split(' ')[-1])
+    except ValueError as err:
+        jid = -1
+        err.args+=(f'Could not convert last word of string to int: ',pout_str)
+        raise err
+    return jid
