@@ -231,6 +231,7 @@ class OptimDriver:
         # iter0
         # 0. create sim
         run_dir = self.get_run_dir(optim_iter)
+        m1qn3_dir = self.get_m1qn3_dir()
         sim = rp.Simulation(run_dir=run_dir,**self.dsim)
 
         # 1. write data.ctrl
@@ -243,7 +244,7 @@ class OptimDriver:
         sim.link_to_run_dir()
         if optim_iter>0:
             fname=self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}'
-            src = os.path.join(self.get_run_dir(optim_iter-1),fname)
+            src = os.path.join(m1qn3_dir,fname)
             destination=os.path.join(run_dir,fname)
             rp.symlink_force(src,destination)
 
@@ -255,20 +256,31 @@ class OptimDriver:
 
     def run_m1qn3(self,optim_iter):
         run_dir = self.get_run_dir(optim_iter)
+        m1qn3_dir = self.get_m1qn3_dir()
 
         # link optim.x to run directory
         exe = os.path.basename(self.optimx)
-        rp.symlink_force(self.optimx,os.path.join(run_dir,exe))
+        destination = os.path.join(m1qn3_dir,exe)
+        if not os.path.isfile(destination):
+            rp.symlink_force(self.optimx,destination)
+
+        # link over cost and ctrl vector
+        for fname in [self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}',
+                      self.cost_packname+f'_MIT_CE_000.opt{optim_iter:04d}',
+                      'data.ctrl','data.optim']:
+            destination = os.path.join(m1qn3_dir,fname)
+            if not os.path.isfile(destination):
+                rp.symlink_force(os.path.join(run_dir,fname),destination)
 
         # move to run dir and run
         pwd = os.getenv('PWD')
-        os.chdir(run_dir)
-        run_cmd = f'./{exe} > stdout.m1qn3.{optim_iter:03d}'
+        os.chdir(m1qn3_dir)
+        run_cmd = f'./{exe} > stdout.{optim_iter:03d}'
         subprocess.run(run_cmd,shell=True)
         os.chdir(pwd)
 
-        # read gradient
-        with open(f'{run_dir}/m1qn3_output.txt','r') as f:
+        # read gradient norm
+        with open(f'{m1qn3_dir}/m1qn3_output.txt','r') as f:
             for line in f.readlines():
                 if 'two-norm of g' in line:
                     g_norm = float(line.split('=')[1][:-1].replace('D','E'))
@@ -302,6 +314,9 @@ class OptimDriver:
 
     def get_run_dir(self,optim_iter):
         return os.path.join(self.main_dir,f'run_ad.{optim_iter:03d}')
+
+    def get_m1qn3_dir(self):
+        return _dir(os.path.join(self.main_dir,f'run.m1qn3'))
 
     def write_ctrl_namelist(self,optim_iter):
         """write data.ctrl into run directory"""
