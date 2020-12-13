@@ -3,12 +3,13 @@ Quasi-Newton optimization with MITgcm
 """
 
 import os
+from os.path import join
 import sys
 import json
 import subprocess
 import warnings
 import numpy as np
-from shutil import rmtree
+from shutil import rmtree, copyfile
 import rosypig as rp
 
 class OptimDriver:
@@ -32,7 +33,7 @@ class OptimDriver:
     """
     slurm = {'be_nice':True,
              'max_job_submissions':9,
-             'dependency':'afterany'}
+             'dependency':'afterok'}
     conda_env = 'py38_tim'
     optim_iter_max = 1000
     g0 = 1000
@@ -189,7 +190,7 @@ class OptimDriver:
             if jid_depends == '':
                 slurmstring=f'sbatch {bashname}'
             else:
-                slurmstring=f'sbatch --dependency=afterany:{jid_depends} {bashname}'
+                slurmstring=f'sbatch --dependency={self.slurm["dependency"]}:{jid_depends} {bashname}'
         else:
             slurmstring=f'sbatch {bashname}'
 
@@ -198,7 +199,7 @@ class OptimDriver:
     def write_bash_script(self,stage,optim_iter,mysim):
         """Write a bash script for the next experiment stage
         """
-        name=f'optim{optim_iter:03d}_{stage}'
+        name=f'opt{optim_iter:04d}_{stage}'
         file_contents = '#!/bin/bash\n\n' +\
             f'#SBATCH -J {name}\n' +\
             f'#SBATCH -o {name}.%j.out\n' +\
@@ -244,9 +245,7 @@ class OptimDriver:
         sim.link_to_run_dir()
         if optim_iter>0:
             fname=self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}'
-            src = os.path.join(m1qn3_dir,fname)
-            destination=os.path.join(run_dir,fname)
-            rp.symlink_force(src,destination)
+            _symlink(join(m1qn3_dir,fname), join(run_dir,fname))
 
         sim.write_slurm_script()
         jid = sim.submit_slurm(**self.slurm)
@@ -260,23 +259,33 @@ class OptimDriver:
 
         # link optim.x to run directory
         exe = os.path.basename(self.optimx)
-        destination = os.path.join(m1qn3_dir,exe)
-        if not os.path.isfile(destination):
-            rp.symlink_force(self.optimx,destination)
+        _symlink(self.optimx, join(m1qn3_dir,exe))
 
-        # link over cost and ctrl vector
-        for fname in [self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}',
-                      self.cost_packname+f'_MIT_CE_000.opt{optim_iter:04d}',
-                      'data.ctrl','data.optim']:
-            destination = os.path.join(m1qn3_dir,fname)
-            if not os.path.isfile(destination):
-                rp.symlink_force(os.path.join(run_dir,fname),destination)
+        # link over cost vector
+        fname = self.cost_packname+f'_MIT_CE_000.opt{optim_iter:04d}'
+        _symlink(join(run_dir,fname), join(m1qn3_dir,fname))
+
+        # iter 0: get ctrl vector too
+        if optim_iter == 0:
+            fname = self.ctrl_packname+f'_MIT_CE_000.opt{optim_iter:04d}'
+            _symlink(join(run_dir,fname), join(m1qn3_dir,fname))
+
+        # copy data.ctrl, data.optim
+        for fname in ['data.ctrl','data.optim']:
+            copyfile(join(run_dir,fname), join(m1qn3_dir,fname))
 
         # move to run dir and run
         pwd = os.getenv('PWD')
         os.chdir(m1qn3_dir)
-        run_cmd = f'./{exe} > stdout.{optim_iter:03d}'
+        run_cmd = f'./{exe} > stdout.{optim_iter:04d} 2> stderr.{optim_iter:04d}'
         subprocess.run(run_cmd,shell=True)
+
+        # check stderr
+        fname=f'stderr.{optim_iter:04d}'
+        with open(fname,'r') as f:
+            stderr = f.read()
+        if len(stderr)>0:
+            raise RuntimeError(f'm1qn3 failed, see: {os.path.realpath(fname)}')
         os.chdir(pwd)
 
         # read gradient norm
@@ -313,7 +322,7 @@ class OptimDriver:
 
 
     def get_run_dir(self,optim_iter):
-        return os.path.join(self.main_dir,f'run_ad.{optim_iter:03d}')
+        return os.path.join(self.main_dir,f'run_ad.{optim_iter:04d}')
 
     def get_m1qn3_dir(self):
         return _dir(os.path.join(self.main_dir,f'run.m1qn3'))
@@ -352,7 +361,7 @@ class OptimDriver:
         """write data.optim into run_directory"""
         dmf = f" dfminFrac = {self.dfminFrac:f}\n" if optim_iter==0 else ""
 
-        nml =   f" &OPTIM\n "+\
+        nml =   f" &OPTIM\n"+\
                 f" optimcycle   = {optim_iter},\n"+\
                 dmf+\
                 f" numiter      = {self.numiter},\n"+\
@@ -384,3 +393,9 @@ def _jid_from_pout(pout):
         err.args+=(f'Could not convert last word of string to int: ',pout_str)
         raise err
     return jid
+
+def _symlink(src,destination):
+    if not os.path.isfile(src):
+        raise OSError(f'Cannot symlink from {src}, does not exist.')
+    if not os.path.isfile(destination):
+        os.symlink(src,destination)
