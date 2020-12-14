@@ -18,9 +18,12 @@ from .oidriver import OIDriver
 from .optim import OptimDriver
 
 from .plot import (
+        plot_meltrate,
         stereo_plot,
         plot_map_and_misfits, plot_lcurve_discrep)
 
 from .time import calc_variability
 
-__all__ = ['io','interp_obcs','matern','moorings','OIDriver','OptimDriver','plot','time']
+from .utils import convert_units
+
+__all__ = ['io','interp_obcs','matern','moorings','OIDriver','OptimDriver','plot','time','utils']

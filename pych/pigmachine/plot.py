@@ -2,6 +2,7 @@
 Some PIG specific plotting routines
 """
 
+from copy import copy
 import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
@@ -9,6 +10,40 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import cartopy.crs as ccrs
 
 from .matern import calc_variance
+from .utils import convert_units
+
+def plot_meltrate(ds,cmap='inferno',
+                  add_text=True,
+                  bad_color='black',
+                  vmin=0, vmax=16, dv=4,
+                  units='Mt/yr',**kwargs):
+
+    fld = 'SHIfwFlx'
+    if 'units' not in ds[fld].attrs:
+        warnings.warn(f'No units in DataArray ds.{fld}, assuming all good...')
+    else:
+        convertto = 'Mt/m^2/yr' if units=='Mt/yr' else units
+        meltrate = -convert_units(ds[fld],units_out=convertto)
+        meltrate = meltrate*ds['rA'] if units=='Mt/yr' else meltrate
+
+    cmap = copy(plt.get_cmap(cmap))
+    cmap.set_bad(bad_color)
+
+    fig,ax = stereo_plot(meltrate,
+                         cbar_kwargs={'label':'Meltrate (Mt/yr)','ticks':np.arange(vmin,vmax+1,dv),'extend':'both'},
+                         cmap=cmap,vmin=vmin,vmax=vmax,**kwargs)
+    if add_text:
+        vmax = meltrate.max().values
+        integral = meltrate.sum(['XC','YC']).values
+        vmean = meltrate.mean().values
+        color='white' if bad_color=='black' else None
+        ax.text(-102.7,-74.8,
+                f'Mean: {float(vmean):.2f} {units}\n'+\
+                f'Max: {float(vmax):.2f} {units}\n'+\
+                f'Total: {float(integral):.2f} {units}',color=color,
+                transform=ccrs.PlateCarree())
+
+    return fig,ax
 
 def plot_lcurve_discrep(ds,d3,dim1='sigma',dim2='Nx',dim3='Fxy',
                         fig=None,axs=None,
@@ -188,7 +223,7 @@ def _make_stereo_plot(fig,ax,fld,xr_cbar,cbar_kwargs,
         fig.colorbar(p,ax=ax,**cbar_kwargs)
 
 def _get_cbar_defaults(orientation):
-    """get some cbar stuff based on 
+    """get some cbar stuff based on
     orientation = 'horizontal' or 'vertical
 
     See commented out code for "inside" colorbar which was abandoned...
