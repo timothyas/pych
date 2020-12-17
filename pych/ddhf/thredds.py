@@ -107,5 +107,6 @@ class ThreddsDataset():
         for fld,myslice in zip(['time','depth'],
                                [slice(*self.time),slice(*self.depth)]):
             f1=f'{fld}_1'
-            ds = ds.sel({f1:myslice}).assign_coords({f1:ds[fld].rename({fld:f1})}).drop(fld).rename({f1:fld})
+            if f1 in ds:
+                ds = ds.sel({f1:myslice}).assign_coords({f1:ds[fld].rename({fld:f1})}).drop(fld).rename({f1:fld})
         return ds
