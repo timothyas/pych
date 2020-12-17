@@ -1,5 +1,3 @@
-
-
 from .io import (
         read_pigbin_xy, read_pigbin_yz, read_mds)
 
@@ -22,8 +20,12 @@ from .plot import (
         stereo_plot,
         plot_map_and_misfits, plot_lcurve_discrep)
 
+from .shelfice import (
+        calc_phiHyd, calc_phi0surf, get_3d_mask)
+
 from .time import calc_variability
 
 from .utils import convert_units
 
-__all__ = ['io','interp_obcs','matern','moorings','OIDriver','OptimDriver','plot','time','utils']
+__all__ = ['io','interp_obcs','matern','moorings',
+           'OIDriver','OptimDriver','plot','shelfice','time','utils']

@@ -13,7 +13,7 @@ def calc_phiHyd(ds, tRef, sRef, rhoConst=1030, eos='jmd95z'):
 
     phiHydAnom(z) = \int_z^{\eta-h} g (rho(z) - rho_0)dz
 
-    where h=iceshelf draft, \eta is free surface, rho(z) is the density 
+    where h=iceshelf draft, \eta is free surface, rho(z) is the density
     profile from provided reference temperature and salinity, and the
 
     This is the integral term in Eqn. 8.27 in the shelfice documentation:
@@ -22,8 +22,8 @@ def calc_phiHyd(ds, tRef, sRef, rhoConst=1030, eos='jmd95z'):
     Parameters
     ----------
     ds : xarray Dataset
-        containing grid information: 
-            rLowC, rSurfC 
+        containing grid information:
+            rLowC, rSurfC
         reference temperature, salinity profiles:
             tRef, sRef
     rhoConst : float, optional
@@ -34,7 +34,7 @@ def calc_phiHyd(ds, tRef, sRef, rhoConst=1030, eos='jmd95z'):
     Returns
     -------
     phiHydAnomC, phiHydAnomF : xarray DataArray
-        vertical profile of hydrostatic pressure from density anomaly 
+        vertical profile of hydrostatic pressure from density anomaly
         at tracer location (C) and vertical cell interfaces (F)
     """
 

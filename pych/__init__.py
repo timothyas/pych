@@ -24,5 +24,4 @@ from .read_stdout import (
 from .utils import (get_cmap_rgb, search_and_replace,
         write_m1qn3_makefile)
 
-__all__ = ['plot','calc','interp_section','mitgcm_utils','read_stdout',
-           'shelfice','utils']
+__all__ = ['plot','calc','interp_section','mitgcm_utils','read_stdout','utils']

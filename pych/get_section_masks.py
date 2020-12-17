@@ -6,14 +6,17 @@ Specifically for stereographic projection!
 import warnings
 import numpy as np
 import xarray as xr
-from ecco_v4_py import scalar_calc
+try:
+    from ecco_v4_py import scalar_calc
+except ImportError:
+    pass
 
 # -------------------------------------------------------------------------------
-# Main function to compute section masks 
+# Main function to compute section masks
 # -------------------------------------------------------------------------------
 
 def get_section_line_masks(pt1, pt2, cds, grid):
-    """Compute 2D mask with 1's along great circle line 
+    """Compute 2D mask with 1's along great circle line
     from lat/lon1 -> lat/lon2
 
     Parameters
@@ -30,7 +33,7 @@ def get_section_line_masks(pt1, pt2, cds, grid):
         2D mask along section
     """
 
-    # Get cartesian coordinates of end points 
+    # Get cartesian coordinates of end points
     x1, y1, z1 = _convert_stereo_to_cartesian(pt1[0],pt1[1])
     x2, y2, z2 = _convert_stereo_to_cartesian(pt2[0],pt2[1])
 
@@ -62,8 +65,8 @@ def get_section_line_masks(pt1, pt2, cds, grid):
     x1, y1, z1 = _apply_rotation_matrix(rot_3, (x1,y1,z1))
     x2, y2, z2 = _apply_rotation_matrix(rot_3, (x2,y2,z2))
 
-    # Now apply rotations to the grid 
-    # and get cartesian coordinates at cell centers 
+    # Now apply rotations to the grid
+    # and get cartesian coordinates at cell centers
     xc, yc, zc = _rotate_the_grid(cds.XC, cds.YC, rot_1, rot_2, rot_3)
 
     # Interpolate for x,y to west and south edges
@@ -73,7 +76,7 @@ def get_section_line_masks(pt1, pt2, cds, grid):
     ys = grid.interp(yc, 'Y', boundary='fill')
 
     # Compute the great circle mask, covering the entire globe
-    maskC = scalar_calc.get_edge_mask(zc>0,grid) 
+    maskC = scalar_calc.get_edge_mask(zc>0,grid)
     maskW = grid.diff( 1*(zc>0), 'X', boundary='fill')
     maskS = grid.diff( 1*(zc>0), 'Y', boundary='fill')
 
@@ -90,11 +93,11 @@ def get_section_line_masks(pt1, pt2, cds, grid):
 # All functions below are non-user facing
 #
 # -------------------------------------------------------------------------------
-# Helper functions for computing section masks 
+# Helper functions for computing section masks
 # -------------------------------------------------------------------------------
 
 def _calc_section_along_full_arc_mask( mask, x1, y1, x2, y2, xg, yg ):
-    """Given a mask which has a great circle passing through 
+    """Given a mask which has a great circle passing through
     pt1 = (x1, y1) and pt2 = (x2,y2), grab the section just connecting pt1 and pt2
 
     Parameters

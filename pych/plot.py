@@ -12,7 +12,10 @@ import matplotlib.pyplot as plt
 import cmocean
 import xarray as xr
 from warnings import warn
-import ecco_v4_py as ecco
+try:
+    import ecco_v4_py as ecco
+except ImportError:
+    print('You need to reorganize pych at some point')
 
 from matplotlib.ticker import MultipleLocator
 
