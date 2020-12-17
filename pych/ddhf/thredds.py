@@ -2,6 +2,7 @@
 I/O routines
 """
 
+import numpy as np
 import xarray as xr
 
 _vars = {'water_u':'tzyx',
@@ -38,6 +39,8 @@ class ThreddsDataset():
     def __repr__(self):
         return f'Thredds dataset size {self.gb:.3f} GB from:\n{self.url}'
 
+
+
     def get_gigs(self):
         """Estimate size of dataset in GigaBytes
 
@@ -48,10 +51,14 @@ class ThreddsDataset():
         """
         single_prec=4
         double_prec=8
-        coords = (self.lon[1]+self.lat[1]+self.depth[1]+self.time[1])*double_prec
+        Nx = _len(self.lon)
+        Ny = _len(self.lat)
+        Nz = _len(self.depth)
+        Nt = _len(self.time)
+        coords = (Nx+Ny+Nz+Nt)*double_prec
 
-        var3d = (self.lon[1]*self.lat[1]*self.depth[1]*self.time[1])*single_prec
-        var2d = (self.lon[1]*self.lat[1]*self.time[1])*single_prec
+        var3d = (Nx*Ny*Nz*Nt)*single_prec
+        var2d = (Nx*Ny*Nt)*single_prec
 
         dsgb = coords
         for key in self.varlist:
@@ -104,9 +111,13 @@ class ThreddsDataset():
         """
         ds = xr.open_dataset(self.url,**kwargs)
 
-        for fld,myslice in zip(['time','depth'],
-                               [slice(*self.time),slice(*self.depth)]):
+        for fld,myslice in zip(['time','depth','lat','lon'],
+                               [slice(*self.time),slice(*self.depth),
+                                slice(*self.lat), slice(*self.lon)]):
             f1=f'{fld}_1'
-            if f1 in ds:
+            if np.any([f1 in ds[x].dims for x in ds.data_vars.keys()]):
                 ds = ds.sel({f1:myslice}).assign_coords({f1:ds[fld].rename({fld:f1})}).drop(fld).rename({f1:fld})
         return ds
+
+def _len(tup):
+    return int((tup[1]-tup[0])/tup[2])
