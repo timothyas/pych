@@ -4,12 +4,15 @@ Quasi-Newton optimization with MITgcm
 
 import os
 from os.path import join
+from copy import deepcopy
 import sys
 import json
 import subprocess
 import warnings
 import numpy as np
 from shutil import rmtree, copyfile
+import xarray as xr
+from xmitgcm import open_mdsdataset
 import rosypig as rp
 
 class OptimDriver:
@@ -399,3 +402,227 @@ def _symlink(src,destination):
         raise OSError(f'Cannot symlink from {src}, does not exist.')
     if not os.path.isfile(destination):
         os.symlink(src,destination)
+
+class OptimDataset():
+    """Run through all possible optim iteration directories, grabbing:
+        - cost function: misfits and ctrl variables separated
+        - xx_*, adxx_* ...
+    """
+    Noptim = 0
+    def __init__(self, main_dir,
+                 tikh=None,
+                 ctrl_packname='pm_ctrl',
+                 cost_packname='pm_cost'):
+        """OptimDataset
+
+        Parameters
+        ----------
+        main_dir : str
+            which contains the sub-run-directories: run_ad.XXXX, run.m1qn3,
+            XXXX = iter
+        tikh : float, optional
+            tikh parameter
+        ctrl_packname, cost_packname : str,optional
+            the ctrl and cost packed vector names
+            precedes the standard _MIT_CE_000.opt{optim_number} suffix
+
+
+        """
+        self.main_dir = main_dir
+        self.tikh = tikh
+        self.ctrl_packname = ctrl_packname
+        self.cost_packname = cost_packname
+
+        # figure out which step we're on
+        lsmain = os.listdir(main_dir)
+        self.adj_dirs = [x for x in lsmain if '_ad' in x]
+        self.m1qn3_dir = join(main_dir,'run.m1qn3') if 'run.m1qn3' in lsmain else None
+
+        # checks
+        try:
+            assert len(self.adj_dirs)>0
+        except AssertionError:
+            raise AssertionError(f'Could not find any run_ad directories in {main_dir}, found: {lsmain}')
+
+        try:
+            assert self.m1qn3_dir is not None
+        except AssertionError:
+            raise AssertionError(f'Could not find run.m1qn3 in {main_dir}, found: {lsmain}')
+
+        # get iterations and current stage
+        self.iters = [int(x.split('.')[1]) for x in self.adj_dirs]
+        self.Noptim = np.max(self.iters)
+        costpack = self.cost_packname+f'_MIT_CE_000.opt{self.Noptim:04d}'
+        self.stage = 'gcm' if costpack not in self.m1qn3_dir else 'm1qn3'
+
+    def __repr__(self):
+        return  ' --- M1qn3 Optimization --- \n'+\
+               f'stage:\t\t{self.stage}\n'+\
+               f'iter:\t\t{self.Noptim}\n'+\
+               f'Tikhonov\n  parameter:\t{self.tikh}'
+
+    def get_dataset(self,**kwargs):
+        """ get a dataset with the goods
+
+        Parameters
+        ----------
+        kwargs : dict, optional
+            passed to xmitgcm.open_mdsdataset
+
+        Returns
+        -------
+        ds : xarray.Dataset
+            with cost, ctrl, and sensitivity fields by iteration
+        """
+        cost = self.read_cost_function()
+        ctrl = self.read_the_xx(**kwargs)
+        both = xr.merge([cost,ctrl])
+
+        # flag the Newton's
+        _,simuls = self.read_m1qn3()
+        both['isNewtonStep'] = xr.full_like(both.iter,True,dtype=bool)
+        for myiter in both.iter.values:
+            if myiter not in simuls:
+                both['isNewtonStep'].loc[{'iter':myiter}] = False
+
+        return both
+
+    def read_cost_function(self):
+        """ return a dataset with just costfunction stuff
+
+        Returns
+        -------
+        ds : xarray.Dataset
+            with just cost fields from costfunctionXXXX
+        """
+
+        iter = xr.DataArray(np.array(self.iters),
+                                  {'iter':np.array(self.iters)},
+                                  dims=('iter',))
+        dslist=[]
+        for k in iter.values:
+            rundir = join(self.main_dir,f'run_ad.{k:04d}')
+
+            fname = f'{rundir}/costfunction{k:04d}'
+            tmpds=xr.Dataset({'iter':k})
+            if os.path.isfile(fname):
+                with open(fname,'r') as f:
+                    for line in f.readlines():
+                        key = line.split('=')[0].replace(' ','')
+                        key = key.split('(')[0] if '(' in key else key
+                        val = float(line.split('=')[1].split()[0].replace('D','E'))
+                        tmpds[key]=val
+                dslist.append(tmpds)
+            else:
+                for fld in dslist[-1].data_vars:
+                    if fld != 'iter':
+                        tmpds[fld] = np.nan*dslist[-1][fld]
+                dslist.append(tmpds)
+
+        ds = xr.concat(dslist,dim='iter')
+
+        # rename for safe merge with controls
+        for f in ds.data_vars:
+            if 'xx_' in f:
+                ds = ds.rename({f:f+'_cost'})
+
+        if self.tikh is not None:
+            ds['tikh'] = self.tikh
+            ds = ds.set_coords('tikh')
+
+
+            # `'fc'` term in `costfunctionXXXX` has regularization
+            # (i.e. all `mult_` factors) taken into account,
+            # but this is not taken into account for each individual term.
+            # Apply it here manually.
+            ds['regularization'] = xr.zeros_like(ds['fc'])
+            for f in ds.data_vars:
+                if 'xx_' in f:
+                    ds[f] = ds['tikh']*ds[f]
+                    ds['regularization'] += ds[f]
+
+            ds['misfit'] = ds['fc']-ds['regularization']
+
+        return ds
+
+    def read_the_xx(self, **kwargs):
+        """get ctrl and sensitivity fields
+
+        Parameters
+        ----------
+        kwargs : dict, optional
+            passed to xmitgcm.open_mdsdataset
+
+        Returns
+        -------
+        ds : xarray.Dataset
+            with xx_*, adxx_*, and any diagnostics
+        """
+        iter = xr.DataArray(np.array(self.iters),
+                                  {'iter':np.array(self.iters)},
+                                  dims=('iter',))
+        droplist=['time','iter']
+        dslist=[]
+        flddict={}
+        for k in iter.values:
+            rundir = join(self.main_dir,f'run_ad.{k:04d}')
+            lsdir = os.listdir(rundir)
+
+            # limit to just read adxx, xx_
+            prefix = [x for x in lsdir if 'xx_' in x]
+            prefix = [x.split('.')[0] if ('effective' not in x) and ('reg' not in x) else \
+                      x.split('.')[0]+'.'+x.split('.')[1] for x in prefix]
+            prefix = list(np.unique(prefix))
+
+            tmpds = open_mdsdataset(rundir,prefix=prefix,**kwargs).squeeze()
+            tmpds = tmpds if not set(droplist).issubset(tmpds.coords) else tmpds.drop(droplist)
+
+            # read diagnostics
+            kw = deepcopy(kwargs)
+            grid_dir=kw.pop('grid_dir', rundir)
+            try:
+                diagds = open_mdsdataset(join(rundir,'diags'),grid_dir,**kw).squeeze()
+            except IndexError:
+                diagds = xr.Dataset()
+
+            diagds = diagds if not set(droplist).issubset(tmpds.coords) else diagds.drop(droplist)
+
+            # stick together
+            tmpds = tmpds.merge(diagds)
+
+            # get list of all fields
+            for f in tmpds.data_vars:
+                if f not in flddict.keys():
+                    flddict[f] = tmpds[f].copy(deep=True)
+
+            tmpds['iter'] = k
+            tmpds = tmpds.set_coords('iter')
+            tmpds = tmpds.expand_dims('iter')
+            dslist.append(tmpds)
+
+        # copy with nans
+        for ds in dslist:
+            for key,val in flddict.items():
+                if key not in ds:
+                    ds[key] = np.nan*val
+
+        ds = xr.concat(dslist,dim='iter')
+
+        # tikhonov
+        if self.tikh is not None:
+            ds['tikh'] = self.tikh
+            ds = ds.set_coords('tikh')
+        return ds
+
+    def read_m1qn3(self):
+        """read m1qn3_output.txt for quasi-newton details"""
+        fname = join(self.m1qn3_dir,'m1qn3_output.txt')
+
+        iterlist = []
+        simullist= []
+        with open(fname,'r') as f:
+            for line in f.readlines():
+                if 'iter' in line and 'simul' in line:
+                    iterlist.append( int(line.split(',')[0].split()[-1]))
+                    simullist.append(int(line.split(',')[1].split()[-1]))
+        return iterlist, simullist
