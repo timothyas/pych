@@ -408,7 +408,8 @@ class OptimDataset():
         - cost function: misfits and ctrl variables separated
         - xx_*, adxx_* ...
     """
-    Noptim = 0
+    Nsimul = 0
+    Niter =0
     def __init__(self, main_dir,
                  tikh=None,
                  ctrl_packname='pm_ctrl',
@@ -450,15 +451,19 @@ class OptimDataset():
             raise AssertionError(f'Could not find run.m1qn3 in {main_dir}, found: {lsmain}')
 
         # get iterations and current stage
-        self.iters = [int(x.split('.')[1]) for x in self.adj_dirs]
-        self.Noptim = np.max(self.iters)
-        costpack = self.cost_packname+f'_MIT_CE_000.opt{self.Noptim:04d}'
+        iters,_ = self.read_m1qn3()
+        self.simuls = [int(x.split('.')[1]) for x in self.adj_dirs]
+        self.iters = np.array(iters)
+        self.Nsimul = np.max(self.simuls)
+        self.Niter = np.max(self.iters)
+        costpack = self.cost_packname+f'_MIT_CE_000.opt{self.Nsimul:04d}'
         self.stage = 'gcm' if costpack not in self.m1qn3_dir else 'm1qn3'
 
     def __repr__(self):
         return  ' --- M1qn3 Optimization --- \n'+\
                f'stage:\t\t{self.stage}\n'+\
-               f'iter:\t\t{self.Noptim}\n'+\
+               f'Num. Simulations:\t{self.Nsimul}\n'+\
+               f'Num. QN Iterations:\t{self.Niter}\n'+\
                f'Tikhonov\n  parameter:\t{self.tikh}'
 
     def get_dataset(self,**kwargs):
@@ -480,10 +485,18 @@ class OptimDataset():
 
         # flag the Newton's
         _,simuls = self.read_m1qn3()
-        both['isNewtonStep'] = xr.full_like(both.iter,True,dtype=bool)
-        for myiter in both.iter.values:
-            if myiter not in simuls:
-                both['isNewtonStep'].loc[{'iter':myiter}] = False
+        both['simulIsIter'] = xr.full_like(both.simul,True,dtype=bool)
+        for mysimul in both.simul.values:
+            if mysimul not in simuls:
+                both['simulIsIter'].loc[{'simul':mysimul}] = False
+        iters=[]
+        i=1
+        for k in both.simul.values:
+            myiter = i if both.simulIsIter.sel(simul=k).values else np.nan
+            iters.append(myiter)
+            i += 1
+        both['iters'] = xr.DataArray(np.asarray(iters),coords=both.simul.coords,dims=both.simul.dims)
+        both = both.set_coords('iters')
 
         return both
 
@@ -496,15 +509,15 @@ class OptimDataset():
             with just cost fields from costfunctionXXXX
         """
 
-        iter = xr.DataArray(np.array(self.iters),
-                                  {'iter':np.array(self.iters)},
-                                  dims=('iter',))
+        simul = xr.DataArray(np.array(self.simuls),
+                                  {'simul':np.array(self.simuls)},
+                                  dims=('simul',))
         dslist=[]
-        for k in iter.values:
+        for k in simul.values:
             rundir = join(self.main_dir,f'run_ad.{k:04d}')
 
             fname = f'{rundir}/costfunction{k:04d}'
-            tmpds=xr.Dataset({'iter':k})
+            tmpds=xr.Dataset({'simul':k})
             if os.path.isfile(fname):
                 with open(fname,'r') as f:
                     for line in f.readlines():
@@ -515,11 +528,11 @@ class OptimDataset():
                 dslist.append(tmpds)
             else:
                 for fld in dslist[-1].data_vars:
-                    if fld != 'iter':
+                    if fld != 'simul':
                         tmpds[fld] = np.nan*dslist[-1][fld]
                 dslist.append(tmpds)
 
-        ds = xr.concat(dslist,dim='iter')
+        ds = xr.concat(dslist,dim='simul')
 
         # rename for safe merge with controls
         for f in ds.data_vars:
@@ -558,13 +571,13 @@ class OptimDataset():
         ds : xarray.Dataset
             with xx_*, adxx_*, and any diagnostics
         """
-        iter = xr.DataArray(np.array(self.iters),
-                                  {'iter':np.array(self.iters)},
-                                  dims=('iter',))
+        simul = xr.DataArray(np.array(self.simuls),
+                                  {'simul':np.array(self.simuls)},
+                                  dims=('simul',))
         droplist=['time','iter']
         dslist=[]
         flddict={}
-        for k in iter.values:
+        for k in simul.values:
             rundir = join(self.main_dir,f'run_ad.{k:04d}')
             lsdir = os.listdir(rundir)
 
@@ -595,9 +608,9 @@ class OptimDataset():
                 if f not in flddict.keys():
                     flddict[f] = tmpds[f].copy(deep=True)
 
-            tmpds['iter'] = k
-            tmpds = tmpds.set_coords('iter')
-            tmpds = tmpds.expand_dims('iter')
+            tmpds['simul'] = k
+            tmpds = tmpds.set_coords('simul')
+            tmpds = tmpds.expand_dims('simul')
             dslist.append(tmpds)
 
         # copy with nans
@@ -606,7 +619,7 @@ class OptimDataset():
                 if key not in ds:
                     ds[key] = np.nan*val
 
-        ds = xr.concat(dslist,dim='iter')
+        ds = xr.concat(dslist,dim='simul')
 
         # tikhonov
         if self.tikh is not None:
@@ -625,4 +638,8 @@ class OptimDataset():
                 if 'iter' in line and 'simul' in line:
                     iterlist.append( int(line.split(',')[0].split()[-1]))
                     simullist.append(int(line.split(',')[1].split()[-1]))
+
+        # for comparison to simulation iterations, subtract 1
+        iterlist = [x-1 for x in iterlist]
+        simullist = [x-1 for x in simullist]
         return iterlist, simullist
