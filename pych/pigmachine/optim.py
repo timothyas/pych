@@ -453,9 +453,8 @@ class OptimDataset():
         # get iterations and current stage
         iters,_ = self.read_m1qn3()
         self.simuls = [int(x.split('.')[1]) for x in self.adj_dirs]
-        self.iters = np.array(iters)
         self.Nsimul = np.max(self.simuls)
-        self.Niter = np.max(self.iters)
+        self.Niter = np.max(iters)
         costpack = self.cost_packname+f'_MIT_CE_000.opt{self.Nsimul:04d}'
         self.stage = 'gcm' if costpack not in self.m1qn3_dir else 'm1qn3'
 
@@ -464,7 +463,7 @@ class OptimDataset():
                f'stage:\t\t{self.stage}\n'+\
                f'Num. Simulations:\t{self.Nsimul}\n'+\
                f'Num. QN Iterations:\t{self.Niter}\n'+\
-               f'Tikhonov\n  parameter:\t{self.tikh}'
+               f'Tikhonov parameter:\t{self.tikh}'
 
     def get_dataset(self,**kwargs):
         """ get a dataset with the goods
@@ -492,9 +491,12 @@ class OptimDataset():
         iters=[]
         i=1
         for k in both.simul.values:
-            myiter = i if both.simulIsIter.sel(simul=k).values else np.nan
+            if both.simulIsIter.sel(simul=k).values:
+                myiter = i
+                i+=1
+            else:
+                myiter=np.nan
             iters.append(myiter)
-            i += 1
         both['iters'] = xr.DataArray(np.asarray(iters),coords=both.simul.coords,dims=both.simul.dims)
         both = both.set_coords('iters')
 
@@ -640,6 +642,6 @@ class OptimDataset():
                     simullist.append(int(line.split(',')[1].split()[-1]))
 
         # for comparison to simulation iterations, subtract 1
-        iterlist = [x-1 for x in iterlist]
+        iterlist = [x for x in iterlist]
         simullist = [x-1 for x in simullist]
         return iterlist, simullist
