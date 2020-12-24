@@ -596,11 +596,16 @@ class OptimDataset():
             kw = deepcopy(kwargs)
             grid_dir=kw.pop('grid_dir', rundir)
             try:
-                diagds = open_mdsdataset(join(rundir,'diags'),grid_dir,**kw).squeeze()
+                diagds = open_mdsdataset(join(rundir,'diags'),grid_dir,**kw)
             except IndexError:
                 diagds = xr.Dataset()
 
-            diagds = diagds if not set(droplist).issubset(tmpds.coords) else diagds.drop(droplist)
+            # handle possibly multiple diagnostics
+            if 'time' in diagds:
+                diagds = diagds.isel(time=-1) if len(diagds.time)>1 else diagds
+            diagds = diagds.squeeze()
+
+            diagds = diagds if not set(droplist).issubset(diagds.coords) else diagds.drop(droplist)
 
             # stick together
             tmpds = tmpds.merge(diagds)
