@@ -83,7 +83,7 @@ class OptimDriver:
         self._send_to_stage(stage,optim_iter)
 
     def start(self,main_dir,dsim,
-              startat='gcm',optim_iter=0,**kwargs):
+              stage='gcm',optim_iter=0,**kwargs):
         """Start the experiment by writing everything we need to file,
         to be read in later by "pickup"
 
@@ -113,11 +113,11 @@ class OptimDriver:
         if kwargs !={}:
             self.write_json(kwargs,'_kwargs.json')
 
-        # --- "pickup" experiment at startat
+        # --- "pickup" experiment at stage
         self.pickup()
         dsim.pop('name')
         startsim = rp.Simulation('startmeup',**dsim)
-        self.submit_next_stage(next_stage=startat,optim_iter=optim_iter,
+        self.submit_next_stage(next_stage=stage,optim_iter=optim_iter,
                                mysim=startsim)
 
     def pickup(self):
@@ -259,6 +259,9 @@ class OptimDriver:
     def run_m1qn3(self,optim_iter):
         run_dir = self.get_run_dir(optim_iter)
         m1qn3_dir = self.get_m1qn3_dir()
+
+        # clear tapes from last iteration
+        _clear_tapes(run_dir)
 
         # link optim.x to run directory
         exe = os.path.basename(self.optimx)
@@ -402,6 +405,18 @@ def _symlink(src,destination):
         raise OSError(f'Cannot symlink from {src}, does not exist.')
     if not os.path.isfile(destination):
         os.symlink(src,destination)
+
+def _clear_tapes(run_dir):
+    tape_dir = join(run_dir,'tapes')
+    if os.path.isdir(tape_dir):
+        print(' -> deleting: ',tape_dir)
+        rmtree(tape_dir)
+
+def _clear_all_tapes(main_dir):
+    lsmain = os.listdir(main_dir)
+    adj_dirs = [join(main_dir,x) for x in lsmain if '_ad' in x]
+    for mydir in adj_dirs:
+        _clear_tapes(mydir)
 
 class OptimDataset():
     """Run through all possible optim iteration directories, grabbing:
