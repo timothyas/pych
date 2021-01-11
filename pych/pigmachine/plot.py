@@ -33,14 +33,20 @@ def plot_meltrate(ds,cmap='inferno',
                          cbar_kwargs={'label':'Meltrate (Mt/yr)','ticks':np.arange(vmin,vmax+1,dv),'extend':'both'},
                          cmap=cmap,vmin=vmin,vmax=vmax,**kwargs)
     if add_text:
-        vmax = meltrate.max().values
-        integral = meltrate.sum(['XC','YC']).values
-        vmean = meltrate.mean().values
+        tdict = {}
+        tdict['Mean'] = [float(meltrate.mean().values),units]
+        tdict['Max'] = [float(meltrate.max().values),units]
+        tdict['Total'] = [float(meltrate.sum(['XC','YC']).values),units]
+        for key, val in tdict.items():
+            if val[0]>1000:
+                val[1] = val[1].replace('M','G')
+                val[0] = val[0]/1000 if val[1][0]=='G' else val[0]
+
         color='white' if bad_color=='black' else None
-        ax.text(-102.7,-74.8,
-                f'Mean: {float(vmean):.2f} {units}\n'+\
-                f'Max: {float(vmax):.2f} {units}\n'+\
-                f'Total: {float(integral):.2f} {units}',color=color,
+        txt=''
+        for key, val in tdict.items():
+            txt+=f'{key}: {val[0]:.2f} {val[1]}\n'
+        ax.text(-102.7,-74.8,txt,color=color,
                 transform=ccrs.PlateCarree())
 
     return fig,ax
