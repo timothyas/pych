@@ -228,7 +228,7 @@ def plot_section(fld, left, right,
         labels = labels*nrows
 
     # set colormap for depth plot with section
-    cmap_deep = plt.get_cmap('cmo.deep')
+    cmap_deep = copy(plt.get_cmap('cmo.deep'))
     cmap_deep.set_bad('gray')
 
     if single_plot:
