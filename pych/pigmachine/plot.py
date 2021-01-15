@@ -17,6 +17,28 @@ def plot_meltrate(ds,cmap='inferno',
                   bad_color='black',
                   vmin=0, vmax=16, dv=4,
                   units='Mt/yr',**kwargs):
+    """make nice meltrate plot with desired units
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        with SHIfwFlx in it
+    cmap : str or matplotlib.colormap, optional
+        the colormap
+    add_text : bool, optional
+        with mean, max, and total meltrate
+    vmin, vmax, dv : float, optional
+        defines the colorbar min, max, and increment
+    units : str, optional
+        desired unit to convert to, see pych.pigmachine.utils.convert_units
+    kwargs
+        additional arguments sent to xarray's plotting wrapper via stereo_plot
+
+    Returns
+    -------
+    fig, ax : matplotlib.figure / axis
+
+    """
 
     fld = 'SHIfwFlx'
     if 'units' not in ds[fld].attrs:
