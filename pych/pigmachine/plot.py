@@ -3,6 +3,7 @@ Some PIG specific plotting routines
 """
 
 from copy import copy
+import warnings
 import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
