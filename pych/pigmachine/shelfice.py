@@ -7,6 +7,33 @@ import xarray as xr
 from MITgcmutils.jmd95 import densjmd95
 from MITgcmutils.mdjwf import densmdjwf
 
+def get_icefront(ds, grid):
+    """return a field with ones where the icefront is
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        with 'maskC' and 'maskCtrlI' fields
+    grid : xgcm Grid object
+        to diff with
+
+    Returns
+    -------
+    icefront : xarray DataArray
+        True where icefront, False otherwise
+    """
+    maskCmI = 1*ds['maskC'].isel(Z=0) - 1*ds['maskCtrlI'].isel(Z=0)
+    icex = grid.diff(maskCmI,'X',boundary='fill')!=0
+    icey = grid.diff(maskCmI,'Y',boundary='fill')!=0
+
+    icex,icey = grid.interp_2d_vector({'X':icex,'Y':icey},boundary='fill').values()
+    icefront = ((icey + icex !=0 ) *ds['maskC'].isel(Z=0) )
+
+    # Hacks for PIG!!
+    icefront = xr.where((ds.YC>-74.55) & (ds.XC>-101.75) ,False,True*icefront)
+    icefront = icefront.where(icefront.XC!=icefront.XC.min(),False)
+
+    return icefront
 
 def calc_phiHyd(ds, tRef, sRef, rhoConst=1030, eos='jmd95z'):
     """Compute Hydrostatic pressure component from density anomaly

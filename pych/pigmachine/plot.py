@@ -9,6 +9,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import cartopy.crs as ccrs
+from cartopy.mpl.geoaxes import GeoAxesSubplot
 
 from .matern import calc_variance
 from .utils import convert_units
@@ -161,6 +162,128 @@ def plot_map_and_misfits(ds_in,Nx,xi,sigma,obs_packer,ctrl_packer,
     axs[1].text(-75.05,-1000, ds[misfit_fld].label)
 
     [ax.set(title='',xlabel='',ylabel='') for ax in axs];
+
+def quiver(ds,grid,ax=None,maskW=None,maskS=None,skip=1, ke_threshold=.1, **kwargs):
+    """
+    Make a quiver plot from velocities in a dataset
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        with UVELMASS, VVELMASS fields
+    grid : xgcm Grid object
+        to interp with
+    ax : matplotlib axis object, optional
+        defining the axis to plot on
+    maskW, maskS : xarray DataArrays
+        selecting the field to be plotted
+    skip : int, optional
+        how many velocity points to skip by when plotting the arrows
+    ke_threshold : float, optional
+        fractional of max(np.sqrt(u**2 + v**2)) to plot, removes tiny dots where velocity
+        is near zero
+    **kwargs : dict, optional
+        passed to matplotlib.pyplot.quiver, some common ones are:
+
+        scale : int, optional
+            to scale the arrows by
+        width : float, optional
+            width of the arrowhead
+        alpha : float, optional
+            opacity of the arrows
+    """
+    if ax is None:
+        _,ax = plt.subplots()
+    sl = slice(None,None,skip)
+    x = ds.XC[sl]
+    y = ds.YC[sl]
+
+    u = ds.UVELMASS if maskW is None else ds.UVELMASS.where(maskW)
+    v = ds.VVELMASS if maskS is None else ds.VVELMASS.where(maskS)
+
+    u,v = grid.interp_2d_vector({'X':u.mean('Z'),'Y':v.mean('Z')},boundary='fill').values()
+    u,v = [ff.where(ds['maskC'].any('Z'))[sl,sl] for ff in [u,v]]
+
+    # hide the little dots where velocity ~0
+    ke = np.sqrt(u**2+v**2)
+    u = u.where(ke>ke_threshold*ke.max(),np.nan)
+    v = v.where(ke>ke_threshold*ke.max(),np.nan)
+
+    # quiver wants numpy arrays
+    x,y,u,v = [ff.values for ff in [x,y,u,v]]
+    if isinstance(ax,GeoAxesSubplot):
+        ax.quiver(x,y,u,v,pivot='tip',transform=ccrs.PlateCarree(),**kwargs)
+    else:
+        ax.quiver(x,y,u,v,pivot='tip',**kwargs)
+    return ax
+
+def streamplot(ds,grid,ax=None,maskW=None,maskS=None, ke_threshold=.1,
+               scaleByKE=0,**kwargs):
+    """
+    Make a quiver plot from velocities in a dataset
+
+    Parameters
+    ----------
+    ds : xarray Dataset
+        with UVELMASS, VVELMASS fields
+    grid : xgcm Grid object
+        to interp with
+    ax : matplotlib axis object, optional
+        defining the axis to plot on
+    maskW, maskS : xarray DataArrays
+        selecting the field to be plotted
+    skip : int, optional
+        how many velocity points to skip by when plotting the arrows
+    ke_threshold : float, optional
+        fractional of max(np.sqrt(u**2 + v**2)) to plot, removes tiny dots where velocity
+        is near zero
+    scaleByKE : float, optional
+        if >0, then scale linewidth by this * KE/max(KE)
+    **kwargs : dict, optional
+        passed to matplotlib.pyplot.quiver, some common ones are:
+
+        density : float, optional
+            density of the contours
+        linewidth : float, optional
+            width of the streamlines, if array same size as u/v, scales with values
+        alpha : float, optional
+            opacity of the arrows
+    """
+    if ax is None:
+        _,ax = plt.subplots()
+    x = ds.XC
+    y = ds.YC.interp(YC=np.linspace(ds.YC.min(),ds.YC.max(),len(ds.YC)))
+
+    u = ds.UVELMASS if maskW is None else ds.UVELMASS.where(maskW)
+    v = ds.VVELMASS if maskS is None else ds.VVELMASS.where(maskS)
+
+    u,v = grid.interp_2d_vector({'X':u.mean('Z'),'Y':v.mean('Z')},boundary='fill').values()
+    u,v = [ff.where(ds['maskC'].any('Z')) for ff in [u,v]]
+
+    # hide the little dots where velocity ~0
+    ke = np.sqrt(u**2+v**2)
+    u = u.where(ke>ke_threshold*ke.max(),np.nan)
+    v = v.where(ke>ke_threshold*ke.max(),np.nan)
+
+    # quiver wants numpy arrays
+    if scaleByKE>0.:
+        if kwargs is not None:
+            assert 'linewidth' not in kwargs.keys(), \
+                    'do not pass linewidth if scaling by KE'
+        else:
+            kwargs={}
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            kwargs['linewidth'] = xr.where(ke>0,scaleByKE*ke/ke.max(),0.).values
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        x,y,u,v,ke = [ff.values for ff in [x,y,u,v,ke]]
+    if isinstance(ax,GeoAxesSubplot):
+        ax.streamplot(x,y,u,v,transform=ccrs.PlateCarree(),**kwargs)
+    else:
+        ax.streamplot(x,y,u,v,**kwargs)
+    return ax
 
 def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
                 cbar_kwargs={},background='black',figsize=(12,10),

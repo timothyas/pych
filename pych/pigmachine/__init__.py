@@ -18,9 +18,12 @@ from .optim import OptimDriver,OptimDataset
 from .plot import (
         plot_meltrate,
         stereo_plot,
+        quiver,
+        streamplot,
         plot_map_and_misfits, plot_lcurve_discrep)
 
 from .shelfice import (
+        get_icefront,
         calc_phiHyd, calc_phi0surf, get_3d_mask)
 
 from .time import calc_variability
