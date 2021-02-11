@@ -13,7 +13,7 @@ def set_data_singleCPUIO(fname):
     if not found:
         found = search_and_replace(fname,
                            search= ' &PARM01',
-                           replace=' &PARM01\n useSingleCpuIO=.TRUE.')
+                           replace=' &PARM01\n useSingleCpuIO=.TRUE.,')
 
 def all_verification_singleCPUIO(mitgcm_dir):
 
