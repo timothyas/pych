@@ -235,6 +235,13 @@ class OIDriver:
         self.F = pm.interp_operator_2d(mdimssort,odimssort,
                                        pack_index_in=self.ctrl.wet_ind,
                                        pack_index_out=self.obs.wet_ind)
+        # --- Determine grid location
+        gridloc = 'C'
+        if 'uvel' in self.experiment:
+            gridloc = 'W'
+        elif 'vvel' in self.experiment:
+            gridloc = 'S'
+        self.gridloc = gridloc
 
         # --- If kwargs exist, use to rewrite default attributes
         if kwargs is not None:
@@ -950,6 +957,7 @@ class OIDriver:
         smooth = f'smooth{ndims}D'
         alg = 'matern'
         alg = alg if not smooth_apply else alg+'apply'
+        maskName = 'mask'+self.gridloc
         if xi not in self.sorDict.keys():
             warnings.warn(f'sor parameter value unknown for xi={xi}, setting sor=1 (=Gauss-Seidel)')
             sor=1
@@ -962,6 +970,7 @@ class OIDriver:
             f' {smooth}NbRand({self.smoothOpNb})={num_inputs},\n'+\
             f' {smooth}JacobiMaxIters({self.smoothOpNb}) = {self.jacobi_max_iters},\n'+\
             f' {smooth}SOROmega({self.smoothOpNb}) = {sor},\n'+\
+            f' {smooth}MaskName({self.smoothOpNb}) = {maskName},\n'+\
             ' &'
         fname = write_dir+f'/data.smooth'
         with open(fname,'w') as f:
@@ -1064,12 +1073,14 @@ class OIDriver:
     def _get_dirs(self,stage,Nx,xi):
         """return read_dir, write_dir, and run_dir for a specific stage"""
 
+
+
         if stage == 'range_approx_one':
             read_str  = None
-            write_str = 'maternC' if 'uvel' not in self.experiment else 'maternW'
+            write_str = 'matern'+self.gridloc
 
         elif stage == 'range_approx_two':
-            read_str  = 'maternC' if 'uvel' not in self.experiment else 'maternW'
+            read_str = 'matern'+self.gridloc
             write_str = self.experiment + '/range2'
 
         elif stage == 'basis_projection_one':
