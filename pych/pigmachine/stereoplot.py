@@ -107,6 +107,9 @@ class StereoPlot():
             cmap.set_bad(self.background)
             kwargs['cmap'] = cmap
 
+        if self.xr_cbar:
+            kwargs['cbar_kwargs'] = cbar_kwargs
+
         mappable = xda.plot(ax=ax,
                             add_colorbar=self.xr_cbar,
                             transform=ccrs.PlateCarree(),
@@ -117,10 +120,10 @@ class StereoPlot():
 
         self.add_gridlines(ax)
 
-        if cbar_kwargs is not None:
+        if not (cbar_kwargs is None or self.xr_cbar):
             self.add_colorbar(mappable, ax, cbar_kwargs)
 
-        return ax
+        return self.fig, ax
 
     def add_gridlines(self,ax):
         """helper method for StereoPlot.plot
