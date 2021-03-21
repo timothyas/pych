@@ -53,25 +53,29 @@ def plot_meltrate(ds,cmap='inferno',
     cmap = copy(plt.get_cmap(cmap))
     cmap.set_bad(bad_color)
 
-    fig,ax = stereo_plot(meltrate,
-                         cbar_kwargs={'label':'Meltrate (Mt/yr)','ticks':np.arange(vmin,vmax+1,dv),'extend':'both'},
-                         cmap=cmap,vmin=vmin,vmax=vmax,**kwargs)
-    if add_text:
-        tdict = {}
-        tdict['Mean'] = [float(meltrate.mean().values),units]
-        tdict['Max'] = [float(meltrate.max().values),units]
-        tdict['Total'] = [float(meltrate.sum(['XC','YC']).values),units]
-        for key, val in tdict.items():
-            if val[0]>1000:
-                val[1] = val[1].replace('M','G')
-                val[0] = val[0]/1000 if val[1][0]=='G' else val[0]
+    cbar_kwargs={'label':'Meltrate (Mt/yr)',
+                 'ticks':np.arange(vmin,vmax+1,dv),'extend':'both'}
+    fig,ax = stereo_plot(ds.XC.mean())
+                         #cmap=cmap,vmin=vmin,vmax=vmax)
+    p = meltrate.plot(ax=ax,add_colorbar=False)
 
-        color='white' if bad_color=='black' else None
-        txt=''
-        for key, val in tdict.items():
-            txt+=f'{key}: {val[0]:.2f} {val[1]}\n'
-        ax.text(-102.7,-74.8,txt,color=color,
-                transform=ccrs.PlateCarree())
+    #_set_cbar(fig,p,ax,cbar_kwargs=cbar_kwargs,xr_cbar=False)
+    #if add_text:
+    #    tdict = {}
+    #    tdict['Mean'] = [float(meltrate.mean().values),units]
+    #    tdict['Max'] = [float(meltrate.max().values),units]
+    #    tdict['Total'] = [float(meltrate.sum(['XC','YC']).values),units]
+    #    for key, val in tdict.items():
+    #        if val[0]>1000:
+    #            val[1] = val[1].replace('M','G')
+    #            val[0] = val[0]/1000 if val[1][0]=='G' else val[0]
+
+    #    color='white' if bad_color=='black' else None
+    #    txt=''
+    #    for key, val in tdict.items():
+    #        txt+=f'{key}: {val[0]:.2f} {val[1]}\n'
+    #    ax.text(-102.7,-74.8,txt,color=color,
+    #            transform=ccrs.PlateCarree())
 
     return fig,ax
 
@@ -285,8 +289,8 @@ def streamplot(ds,grid,ax=None,maskW=None,maskS=None, ke_threshold=.1,
         ax.streamplot(x,y,u,v,**kwargs)
     return ax
 
-def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
-                cbar_kwargs={},background='black',figsize=(12,10),
+def stereo_plot(lon0, nrows=1, ncols=1, xr_cbar=False,
+                background='black',figsize=(12,10),
                 **kwargs):
     """Make a South Polar Stereographic projection plot of Pine Island
 
@@ -314,22 +318,24 @@ def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
         from plt.subplots() call
     """
 
-    if isinstance(xda,xr.core.dataarray.DataArray):
-        xda = [xda]
+    #if isinstance(xda,xr.core.dataarray.DataArray):
+    #    xda = [xda]
 
-    if len(xda) != nrows*ncols:
-        raise TypeError('nrows*ncols != number of provided fields')
+    #if len(xda) != nrows*ncols:
+    #    raise TypeError('nrows*ncols != number of provided fields')
 
-    x = xda[0]['XC'] if 'XC' in xda[0].coords else xda[0]['XG']
-    lon0 = -float(np.abs(x.mean()))
+    #x = xda[0]['XC'] if 'XC' in xda[0].coords else xda[0]['XG']
+    #lon0 = -float(np.abs(x.mean()))
+    lon0 = float(lon0)
 
     fig,axs = plt.subplots(nrows,ncols,figsize=figsize,
-                          subplot_kw={'projection':
-                              ccrs.SouthPolarStereo(central_longitude=lon0)})
+                           subplot_kw={'projection':
+                                       ccrs.SouthPolarStereo(central_longitude=lon0)},
+                           **kwargs)
 
     axs = axs if isinstance(axs,np.ndarray) else np.array(axs)
 
-    for i,(fld,ax) in enumerate(zip(xda,axs.flatten())):
+    for i,ax in enumerate(axs.flatten()):
         irow = int(i/nrows)
         icol = i%ncols
         gridline_kw={}
@@ -337,36 +343,41 @@ def stereo_plot(xda,nrows=1, ncols=1, xr_cbar=False,
         gridline_kw['left_labels'] = icol == 0 if ncols>1 else True
         gridline_kw['top_labels'] = irow == 0 if nrows>1 else True
         gridline_kw['bottom_labels'] = True#irow == nrows-1
-        _make_stereo_plot(fig,ax,fld,xr_cbar,cbar_kwargs,background,
-                          gridline_kw,**kwargs)
+        _make_stereo_plot(ax,background,gridline_kw)
 
     axs = ax if nrows*ncols==1 else axs
 
     return fig,axs
 
-def _make_stereo_plot(fig,ax,fld,xr_cbar,cbar_kwargs,
-                      background,gridline_kw,**kwargs):
+def _make_stereo_plot(ax,background,gridline_kw):
 
     ax.set_extent([-102.75,-99,-75.44,-74.45])
-    p = fld.plot(ax=ax,transform=ccrs.PlateCarree(),
-                 add_colorbar=xr_cbar,**kwargs)
+    #p = fld.plot(ax=ax,transform=ccrs.PlateCarree(),
+    #             add_colorbar=xr_cbar,**kwargs)
     # Clean it up
     ax.axis('off')
     ax.set(ylabel='',xlabel='',title='')
 
     # Gridlines
     color = 'white' if background == 'black' or background == 'gray' else 'gray'
-    gl = ax.gridlines(draw_labels=True,color=color,alpha=.2,y_inline=False,
-                 xlocs=-99.5-np.arange(4),ylocs=-75.25+.25*np.arange(4))
-    for key,val in gridline_kw.items():
-        setattr(gl,key,val)
+    #gl = ax.gridlines(draw_labels=True,color=color,alpha=.2,y_inline=False,
+    #             xlocs=-99.5-np.arange(4),ylocs=-75.25+.25*np.arange(4))
+    #for key,val in gridline_kw.items():
+    #    setattr(gl,key,val)
+
+def _set_cbar(fig,p,ax,xr_cbar,cbar_kwargs):
 
     # --- Colorbar
     add_cbar = not xr_cbar if 'add_cbar' not in cbar_kwargs else (not xr_cbar) and cbar_kwargs['add_cbar']
+
+    print('cbar_kwargs: ',cbar_kwargs)
+    print('add_cbar: ',add_cbar)
     if add_cbar:
         cbar_defaults = _get_cbar_defaults('horizontal') \
                 if 'orientation' not in cbar_kwargs else \
                 _get_cbar_defaults(cbar_kwargs['orientation'])
+
+        print('cbar_defaults: ',cbar_defaults)
 
         for key,val in cbar_defaults.items():
             if key not in cbar_kwargs:
