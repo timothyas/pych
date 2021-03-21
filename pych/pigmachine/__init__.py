@@ -17,7 +17,6 @@ from .optim import OptimDriver,OptimDataset
 
 from .plot import (
         plot_meltrate,
-        stereo_plot,
         quiver,
         streamplot,
         plot_map_and_misfits, plot_lcurve_discrep)
@@ -26,9 +25,12 @@ from .shelfice import (
         get_icefront,
         calc_phiHyd, calc_phi0surf, get_3d_mask)
 
+from .stereoplot import StereoPlot
+
 from .time import calc_variability
 
 from .utils import convert_units
 
 __all__ = ['io','interp_obcs','matern','moorings',
-           'OIDriver','OptimDriver','OptimDataset','plot','shelfice','time','utils']
+           'OIDriver','OptimDriver','OptimDataset','plot','shelfice',
+           'StereoPlot','time','utils']
