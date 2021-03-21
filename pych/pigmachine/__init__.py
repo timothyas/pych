@@ -16,7 +16,7 @@ from .oidriver import OIDriver
 from .optim import OptimDriver,OptimDataset
 
 from .plot import (
-        plot_meltrate,
+        plot_meltrate, plot_barostf,
         quiver,
         streamplot,
         plot_map_and_misfits, plot_lcurve_discrep)

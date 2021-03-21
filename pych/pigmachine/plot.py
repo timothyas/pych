@@ -14,6 +14,7 @@ from cartopy.mpl.geoaxes import GeoAxesSubplot
 from .stereoplot import StereoPlot
 from .matern import calc_variance
 from .utils import convert_units
+from ..calc import calc_baro_stf
 
 def plot_meltrate(ds,sp=None,ax=None,
                   cmap='inferno',
@@ -72,9 +73,9 @@ def plot_meltrate(ds,sp=None,ax=None,
 
     # Make the actual plot
     if ax is None:
-        ax = sp.plot(meltrate,**pkw)
+        fig, ax = sp.plot(meltrate,**pkw)
     else:
-        ax = sp.plot(meltrate,ax=ax,**pkw)
+        fig, ax = sp.plot(meltrate,ax=ax,**pkw)
 
 
     # add some nice text
@@ -95,7 +96,93 @@ def plot_meltrate(ds,sp=None,ax=None,
         ax.text(-102.7,-74.8,txt,color=color,
                 transform=ccrs.PlateCarree())
 
-    return ax
+    return fig, ax
+
+def plot_barostf(ds,grid,sp=None,ax=None,
+                 Z=None,
+                 addBathyContours=True,
+                 addStreamlines=True,
+                 addQuiver=False,
+                 addText=True,
+                 vmax=0.2,
+                 cmap='cmo.balance'):
+    """Plot barotropic streamfuncion
+
+    Parameters
+    ----------
+    ds : xarray Datset
+        with 'UVELMASS' for sreamfunction only, 'VVELMASS' if doing quiver or streamlines
+    grid : xgcm.Grid
+    sp : pych.pigmachine.StereoPlot, optional
+    ax : matplotlib.axis, optional
+    Z : float, array_like, or xarray.DataArray, optional
+        specifying depth levels to grab
+    addBathyContours : bool, optional
+        if True, add gray bathymetry contours in the background
+    addStreamlines, addQuiver : bool, optional
+        Show the flow as streamlines or "quiver".
+        Both cannot be True, but both can be False.
+    addText : bool, optional
+        Show the maximum and minimum streamfunction text
+    vmax : float, optional
+        maximum amplitude for colormap
+    cmap : str or matplotlib colormap object, optional
+        colormap for the streamfunction
+
+    Returns
+    -------
+    fig,ax : matplotlib.figure / axis
+    """
+
+    if addStreamlines and addQuiver:
+        assert (not (addStreamlines and addQuiver)), 'cannot do both quiver and streamlines'
+
+
+    # do some calc's
+    xds = ds if Z is None else ds.sel(Z=Z)
+    barostf=calc_baro_stf(xds,grid)
+    maskG = xds.maskC if Z is None else xds.maskC.sel(Z=Z)
+
+    # If selecting Z, then mask out Z levels with "all"
+    # otherwise, want full streamfunction "anywhere" in Z
+    maskG=maskG.any('Z').values if Z is None else maskG.all('Z').values
+    barostf=barostf.where(maskG)
+
+    # setup args
+    label = 'Barotropic Streamfunction (Sv)'
+    if Z is not None:
+        dup = int(np.abs(xds.Z.max().values))
+        dlo = int(np.abs(xds.Z.min().values))
+        label += f'\n Depth: {dup}-{dlo}m'
+
+    cbar_kwargs={'extend':'max','label':label,
+                 'ticks':1e-1*np.arange(-2,3,1)}
+
+    # plot
+    sp = StereoPlot() if sp is None else sp
+    if ax is None:
+        fig,ax = sp.plot(barostf,vmin=-vmax,vmax=vmax,cmap=cmap,
+                         cbar_kwargs=cbar_kwargs)
+    else:
+        fig,ax = sp.plot(barostf,ax=ax,vmin=-vmax,vmax=vmax,cmap=cmap,
+                         cbar_kwargs=cbar_kwargs)
+
+    if addBathyContours:
+        ds.Depth.plot.contour(cmap='gray_r',levels=15,alpha=.3,ax=ax,
+                              transform=ccrs.PlateCarree())
+    if addStreamlines:
+        streamplot(xds,grid,ax=ax,maskW=xds.maskW,maskS=xds.maskS,
+                   scaleByKE=4,ke_threshold=.025,density=2,color='k');
+    if addQuiver:
+        quiver(xds,grid,ax=ax,skip=4,scale=2,width=.004,alpha=.8,ke_threshold=0.05);
+    ax.set_title('')
+
+    if addText:
+        ax.text(-100,-74.91,
+                f'Max: {float(barostf.max()):.2f} Sv\nMin: {float(barostf.min()):.2f} Sv',
+                fontsize=16,color='white',transform=ccrs.PlateCarree());
+
+    return fig,ax
 
 def plot_lcurve_discrep(ds,d3,dim1='sigma',dim2='Nx',dim3='Fxy',
                         fig=None,axs=None,
