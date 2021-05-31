@@ -57,7 +57,7 @@ def plot_meltrate(ds,sp=None,ax=None,
         meltrate = -convert_units(ds[fld],units_out=convertto)
         meltrate = meltrate*ds['rA'] if units=='Mt/yr' else meltrate
 
-    if ax is None or sp is None:
+    if ax is None and sp is None:
         sp = StereoPlot()
 
     # get colormap and set background
