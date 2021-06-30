@@ -65,7 +65,7 @@ def plot_meltrate(ds,sp=None,ax=None,
     cmap.set_bad(sp.background)
 
     # set inputs for StereoPlot object
-    cbar_kwargs={'label':'Meltrate (Mt/yr)',
+    cbar_kwargs={'label':f'Meltrate ({units})',
                  'ticks':np.arange(vmin,vmax+1,dv),'extend':'both'}
     pkw = {'cmap':cmap, 'vmin':vmin, 'vmax':vmax,
            'cbar_kwargs':cbar_kwargs,
