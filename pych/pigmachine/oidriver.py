@@ -970,7 +970,7 @@ class OIDriver:
             f' {smooth}NbRand({self.smoothOpNb})={num_inputs},\n'+\
             f' {smooth}JacobiMaxIters({self.smoothOpNb}) = {self.jacobi_max_iters},\n'+\
             f' {smooth}SOROmega({self.smoothOpNb}) = {sor},\n'+\
-            f' {smooth}MaskName({self.smoothOpNb}) = {maskName},\n'+\
+            f' {smooth}MaskName({self.smoothOpNb}) = "{maskName}",\n'+\
             ' &'
         fname = write_dir+f'/data.smooth'
         with open(fname,'w') as f:
