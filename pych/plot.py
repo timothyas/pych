@@ -21,7 +21,8 @@ from matplotlib.ticker import MultipleLocator
 
 from .utils import get_cmap_rgb
 
-def plot_logbin(xda,nbins=3,bin_edges=None,
+def plot_logbin(xda,x=None, y=None,
+                nbins=3,bin_edges=None,
                 ax=None,
                 cmap='RdBu_r',
                 cbar_label=None,
@@ -32,6 +33,8 @@ def plot_logbin(xda,nbins=3,bin_edges=None,
     ----------
     xda : xarray.DataArray
         field to be plotted, must be 2D
+    x, y : array_like, optional
+        x and y coordinates for the plot
     nbins : int, optional
         number of colored bin (centers) positive and negative values
         i.e. we get 2*nbins+1, bins. one is neutral (middle)
@@ -99,7 +102,10 @@ def plot_logbin(xda,nbins=3,bin_edges=None,
     # levels and plot
     levels=10**logbins
     levels = np.concatenate([-levels[::-1],levels],axis=0)
-    im=ax.contourf(xda,levels=levels,colors=cmap,extend=extend,**kwargs)
+    if x is None or y is None:
+        im=ax.contourf(xda,levels=levels,colors=cmap,extend=extend,**kwargs)
+    else:
+        im=ax.contourf(x,y,xda,levels=levels,colors=cmap,extend=extend,**kwargs)
 
     # label dem ticks
     if cbar_label==None and 'units' in xda.attrs:
@@ -111,6 +117,8 @@ def plot_logbin(xda,nbins=3,bin_edges=None,
 
     if return_ax:
         return ax
+    else:
+        return im
 
 def nice_inward_ticks(ax,
                       xminor_skip=None,yminor_skip=None):

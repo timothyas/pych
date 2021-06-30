@@ -54,7 +54,8 @@ def convert_units(xda,units_out,keep_attrs=True):
             xda = xda / _kg_per_mt * _rhoFresh
         else:
             raise NotImplementedError()
-    elif 'dJ/' in units and units_out in ['Mt/yr']:
+    elif ('dJ/' in units or '[objective_function_units]/' in units) \
+         and units_out in ['Mt/yr']:
         print("Assuming sensitivity of meltrate to control variable,"+\
               " with meltrate units [kg/s]")
         if units_out=='Mt/yr':
@@ -63,6 +64,7 @@ def convert_units(xda,units_out,keep_attrs=True):
             raise NotImplementedError()
 
         # reset with converted dJ units replaced
+        units = units.replace('[objective_function_units]','dJ/')
         ctrlvar_units = units.split('dJ/')[-1]
         units_out = f'({units_out})/'+ctrlvar_units
 

@@ -75,6 +75,7 @@ class StereoPlot():
 
     def plot(self, xda, ax=None,
              cbar_kwargs={},
+             plot=None,
              **kwargs):
         """Main StereoPlot routine, plot a single 2D xarray DataArray
         on the South Polar Stereographic projection
@@ -110,10 +111,13 @@ class StereoPlot():
         if self.xr_cbar:
             kwargs['cbar_kwargs'] = cbar_kwargs
 
-        mappable = xda.plot(ax=ax,
-                            add_colorbar=self.xr_cbar,
-                            transform=ccrs.PlateCarree(),
-                            **kwargs)
+        if plot is None:
+            mappable = xda.plot(ax=ax,
+                                add_colorbar=self.xr_cbar,
+                                transform=ccrs.PlateCarree(),
+                                **kwargs)
+        else:
+            mappable = plot(xda,ax=ax,transform=ccrs.PlateCarree(),**kwargs)
         # Clean it up
         ax.axis('off')
         ax.set(ylabel='',xlabel='',title='')
