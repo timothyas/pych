@@ -117,7 +117,13 @@ class StereoPlot():
                                 transform=ccrs.PlateCarree(),
                                 **kwargs)
         else:
-            mappable = plot(xda,ax=ax,transform=ccrs.PlateCarree(),**kwargs)
+            if 'xarray' in str(plot):
+                mappable = plot(ax=ax,transform=ccrs.PlateCarree(),
+                                add_colorbar=self.xr_cbar,
+                                **kwargs)
+            else:
+                plot = getattr(ax,plot)
+                mappable = plot(xda,transform=ccrs.PlateCarree(),**kwargs)
         # Clean it up
         ax.axis('off')
         ax.set(ylabel='',xlabel='',title='')

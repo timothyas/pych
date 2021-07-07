@@ -20,6 +20,7 @@ def plot_meltrate(ds,sp=None,ax=None,
                   cmap='inferno',
                   add_text=True,
                   vmin=0, vmax=16, dv=4,
+                  plot_type='contourf',
                   units='Mt/yr',**kwargs):
     """make nice meltrate plot with desired units
 
@@ -39,6 +40,8 @@ def plot_meltrate(ds,sp=None,ax=None,
         defines the colorbar min, max, and increment
     units : str, optional
         desired unit to convert to, see pych.pigmachine.utils.convert_units
+    plot_type : str, optional
+        default to contourf for now, other options is pcolormesh
     kwargs
         additional arguments sent to xarray's plotting wrapper via stereo_plot
 
@@ -66,16 +69,17 @@ def plot_meltrate(ds,sp=None,ax=None,
 
     # set inputs for StereoPlot object
     cbar_kwargs={'label':f'Meltrate ({units})',
-                 'ticks':np.arange(vmin,vmax+1,dv),'extend':'both'}
+                 'ticks':np.arange(vmin,vmax+1,dv)}
     pkw = {'cmap':cmap, 'vmin':vmin, 'vmax':vmax,
            'cbar_kwargs':cbar_kwargs,
            **kwargs}
 
     # Make the actual plot
+    plot = getattr(meltrate.plot, plot_type)
     if ax is None:
-        fig, ax = sp.plot(meltrate,**pkw)
+        fig, ax = sp.plot(meltrate, plot=plot, **pkw)
     else:
-        fig, ax = sp.plot(meltrate,ax=ax,**pkw)
+        fig, ax = sp.plot(meltrate,ax=ax, plot=plot, **pkw)
 
 
     # add some nice text
