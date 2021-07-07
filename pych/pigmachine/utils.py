@@ -57,9 +57,9 @@ def convert_units(xda,units_out,keep_attrs=True):
     elif ('dJ/' in units or '[objective_function_units]/' in units) \
          and units_out in ['Mt/yr']:
         print("Assuming sensitivity of meltrate to control variable,"+\
-              " with meltrate units [kg/s]")
+              " with meltrate units [m^3/s]")
         if units_out=='Mt/yr':
-            xda = xda / _kg_per_mt * _sec_per_year
+            xda = xda / _kg_per_mt * _sec_per_year * _rhoFresh
         else:
             raise NotImplementedError()
 
