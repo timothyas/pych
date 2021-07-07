@@ -58,7 +58,7 @@ class OIDriver:
     dataprec = 'float64'
     NxList  = [5, 10, 15, 20, 30, 40]
     xiList  = [0.5,   1,   2]#,   5]
-    sorDict = {0.5:1.8, 1:1.6, 2:1.3, 5:1.2}
+    sorDict = {0.5:1.8, 1:1.6, 2:1.3, 4:1.2, 5:1.2}
     n_sigma = 9
     sigma = 10**np.linspace(-5,-3,n_sigma)
     smoothOpNb = 1
