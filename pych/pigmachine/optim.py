@@ -575,7 +575,7 @@ class OptimDataset():
 
         return ds
 
-    def read_the_xx(self, **kwargs):
+    def read_the_xx(self, prefix=None, **kwargs):
         """get ctrl and sensitivity fields
 
         Parameters
@@ -587,6 +587,10 @@ class OptimDataset():
         -------
         ds : xarray.Dataset
             with xx_*, adxx_*, and any diagnostics
+        prefix : str or list of str, optional
+            Provided to xmitgcm.open_mdsdataset for reading xx/adxx files only
+        kwargs : dict, optional
+            Passed to xmitgcm.open_mdsdataset for reading xx/adxx and diagnostics
         """
         simul = xr.DataArray(np.array(self.simuls),
                                   {'simul':np.array(self.simuls)},
@@ -598,11 +602,12 @@ class OptimDataset():
             rundir = join(self.main_dir,f'run_ad.{k:04d}')
             lsdir = os.listdir(rundir)
 
-            # limit to just read adxx, xx_
-            prefix = [x for x in lsdir if 'xx_' in x]
-            prefix = [x.split('.')[0] if ('effective' not in x) and ('reg' not in x) else \
-                      x.split('.')[0]+'.'+x.split('.')[1] for x in prefix]
-            prefix = list(np.unique(prefix))
+            if prefix is None:
+                # limit to just read adxx, xx_
+                prefix = [x for x in lsdir if 'xx_' in x]
+                prefix = [x.split('.')[0] if ('effective' not in x) and ('reg' not in x) else \
+                          x.split('.')[0]+'.'+x.split('.')[1] for x in prefix]
+                prefix = list(np.unique(prefix))
 
             tmpds = open_mdsdataset(rundir,prefix=prefix,**kwargs).squeeze()
             tmpds = tmpds if not set(droplist).issubset(tmpds.coords) else tmpds.drop(droplist)
