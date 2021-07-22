@@ -25,7 +25,7 @@ class StereoPlot():
     """
 
     lon0 = -100.875
-    extent = [-102.75,-99,-75.44,-74.45]
+    extent = [-102.75,-99,-75.44,-74.4675]
 
     gridline_kw = {'draw_labels':True,
                    'alpha':0.2,
@@ -72,6 +72,8 @@ class StereoPlot():
         self.ncols=ncols
         self.xr_cbar = xr_cbar
         self.background = background
+        self.dLon = self.extent[ 1] - self.extent[ 0]
+        self.dLat = self.extent[-1] - self.extent[-2]
 
     def plot(self, xda, ax=None,
              cbar_kwargs={},
@@ -94,7 +96,8 @@ class StereoPlot():
 
         Returns
         -------
-        ax : matplotlib.axis
+        fig, ax : if cbar_kwargs is not None
+        fig, ax, mappable : if cbar_kwargs is None
         """
 
         ax = ax if ax is not None else self.axs
@@ -124,16 +127,32 @@ class StereoPlot():
             else:
                 plot = getattr(ax,plot)
                 mappable = plot(xda,transform=ccrs.PlateCarree(),**kwargs)
+
         # Clean it up
         ax.axis('off')
         ax.set(ylabel='',xlabel='',title='')
+
+        # Contourf ignores the "cmap.set_bad()" call b/c it never plots these
+        # points at all
+        # facecolor also doesn't work with ax.axis('off')
+        # removing the gridlines and ticks doesn't work either b/c the facecolor
+        # does not get "projected"
+        # so, best way to handle this is by adding a patch with the background color
+        # this doesn't change the look of the "set_bad" for pcolormesh either, so
+        # consistent for all plot types
+        ax.add_patch(plt.Rectangle((self.extent[0],self.extent[2]),
+                                   self.dLon, self.dLat,
+                                   facecolor=self.background,
+                                   transform=ccrs.PlateCarree(),
+                                   zorder=0))
 
         self.add_gridlines(ax)
 
         if not (cbar_kwargs is None or self.xr_cbar):
             self.add_colorbar(mappable, ax, cbar_kwargs)
-
-        return self.fig, ax
+            return self.fig, ax
+        elif cbar_kwargs is None:
+            return self.fig, ax, mappable
 
     def add_gridlines(self,ax):
         """helper method for StereoPlot.plot

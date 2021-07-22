@@ -21,7 +21,10 @@ def plot_meltrate(ds,sp=None,ax=None,
                   add_text=True,
                   vmin=0, vmax=16, dv=4,
                   plot_type='contourf',
-                  units='Mt/yr',**kwargs):
+                  units='Mt/yr',
+                  cbar_kwargs={},
+                  textcolor=None,
+                  **kwargs):
     """make nice meltrate plot with desired units
 
     Parameters
@@ -42,18 +45,24 @@ def plot_meltrate(ds,sp=None,ax=None,
         desired unit to convert to, see pych.pigmachine.utils.convert_units
     plot_type : str, optional
         default to contourf for now, other options is pcolormesh
+    cbar_kwargs : dict, optional
+        see StereoPlot.plot
+    textcolor : str, optional
+        textcolor if add_text is True
     kwargs
         additional arguments sent to xarray's plotting wrapper via stereo_plot
 
     Returns
     -------
-    ax : matplotlib.axis
+    fig, ax : if cbar_kwargs is not None
+    fig, ax, mappable : if cbar_kwargs is None
 
     """
 
     # get the units
     fld = 'SHIfwFlx'
     if 'units' not in ds[fld].attrs:
+        raise TypeError("No units in ds.{fld} ... this is causing issues")
         warnings.warn(f'No units in DataArray ds.{fld}, assuming all good...')
     else:
         convertto = 'Mt/m^2/yr' if units=='Mt/yr' else units
@@ -63,13 +72,10 @@ def plot_meltrate(ds,sp=None,ax=None,
     if ax is None and sp is None:
         sp = StereoPlot()
 
-    # get colormap and set background
-    cmap = copy(plt.get_cmap(cmap))
-    cmap.set_bad(sp.background)
-
     # set inputs for StereoPlot object
-    cbar_kwargs={'label':f'Meltrate ({units})',
-                 'ticks':np.arange(vmin,vmax+1,dv)}
+    if cbar_kwargs == {}:
+        cbar_kwargs={'label':f'Meltrate ({units})',
+                     'ticks':np.arange(vmin,vmax+1,dv)}
     pkw = {'cmap':cmap, 'vmin':vmin, 'vmax':vmax,
            'cbar_kwargs':cbar_kwargs,
            **kwargs}
@@ -77,10 +83,14 @@ def plot_meltrate(ds,sp=None,ax=None,
     # Make the actual plot
     plot = getattr(meltrate.plot, plot_type)
     if ax is None:
-        fig, ax = sp.plot(meltrate, plot=plot, **pkw)
+        returns = sp.plot(meltrate, plot=plot, **pkw)
     else:
-        fig, ax = sp.plot(meltrate,ax=ax, plot=plot, **pkw)
+        returns = sp.plot(meltrate,ax=ax, plot=plot, **pkw)
 
+    fig = returns[0]
+    ax = returns[1]
+    if len(returns)>2:
+        mappable = returns[2]
 
     # add some nice text
     if add_text:
@@ -93,14 +103,16 @@ def plot_meltrate(ds,sp=None,ax=None,
                 val[1] = val[1].replace('M','G')
                 val[0] = val[0]/1000 if val[1][0]=='G' else val[0]
 
-        color='white' if sp.background=='black' else None
+        if textcolor is None:
+            textcolor='white' if sp.background=='black' else None
+
         txt=''
         for key, val in tdict.items():
             txt+=f'{key}: {val[0]:.2f} {val[1]}\n'
-        ax.text(-102.7,-74.8,txt,color=color,
+        ax.text(-102.7,-74.85,txt,color=textcolor,
                 transform=ccrs.PlateCarree())
 
-    return fig, ax
+    return returns
 
 def plot_barostf(ds,grid,sp=None,ax=None,
                  Z=None,
