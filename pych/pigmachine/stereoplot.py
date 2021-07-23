@@ -174,13 +174,12 @@ class StereoPlot():
             index = np.nansum(index)
 
         # Now configure the gridlines, depending on subplot arrangement
-        irow = index // self.nrows
-        icol = index % self.ncols
+        irow, icol = np.unravel_index(int(index), (self.nrows,self.ncols))
         gridline_kw_loc={}
         gridline_kw_loc['right_labels'] = (not self.xr_cbar) and (icol == self.ncols-1)
         gridline_kw_loc['left_labels'] = icol == 0 if self.ncols>1 else True
         gridline_kw_loc['top_labels'] = irow == 0 if self.nrows>1 else True
-        gridline_kw_loc['bottom_labels'] = True#irow == self.nrows-1
+        gridline_kw_loc['bottom_labels'] = irow == self.nrows-1
 
         # set the color and create
         color = 'white' if self.background == 'black' or self.background == 'gray' else 'gray'
