@@ -36,6 +36,8 @@ class StereoPlot():
     def __init__(self, nrows=1, ncols=1,
                  figsize=(12,10), background='black',
                  xr_cbar=False,
+                 subplot_kw=None,
+                 just_init_fig=False,
                  **kwargs):
         """Create StereoPlot object
 
@@ -53,21 +55,27 @@ class StereoPlot():
             passed to matplotlib.pyplot.subplots
         """
 
+        skw=subplot_kw if subplot_kw is not None else \
+            {'projection':ccrs.SouthPolarStereo(central_longitude=self.lon0)}
 
-        fig,axs = plt.subplots(nrows=nrows,ncols=ncols,
-                               figsize=figsize,
-                               subplot_kw={'projection':
-                                           ccrs.SouthPolarStereo(central_longitude=self.lon0)},
-                               **kwargs)
+        if not just_init_fig:
+            fig,axs = plt.subplots(nrows=nrows,ncols=ncols,
+                                   figsize=figsize,
+                                   subplot_kw=skw,
+                                   **kwargs)
+            if isinstance(axs,list):
+                axs = np.ndarray(axs)
+            self.axs = axs
+        else:
+            fig = plt.figure(figsize=figsize)
 
         if ncols*nrows>1:
             self.isSingle = False
-            axs = axs if isinstance(axs, np.ndarray) else np.array(axs)
+
         else:
             self.isSingle = True
 
         self.fig = fig
-        self.axs = axs
         self.nrows=nrows
         self.ncols=ncols
         self.xr_cbar = xr_cbar
@@ -100,7 +108,8 @@ class StereoPlot():
         fig, ax, mappable : if cbar_kwargs is None
         """
 
-        ax = ax if ax is not None else self.axs
+        if ax is None and self.isSingle:
+            ax = self.axs
         ax.set_extent(self.extent)
 
         # take care of colormap if in kwargs
@@ -163,23 +172,14 @@ class StereoPlot():
         ax : matplotlib.axis
         """
 
-        if self.isSingle:
-            index=0
-
-        else:
-
-            # make a list, only non-NaN value is flattened index location
-            index = [i if self.axs.flatten()[i]==ax else np.nan \
-                        for i in range(self.nrows*self.ncols)]
-            index = np.nansum(index)
-
-        # Now configure the gridlines, depending on subplot arrangement
-        irow, icol = np.unravel_index(int(index), (self.nrows,self.ncols))
+        colspan = list(ax.get_subplotspec().colspan)
+        rowspan = list(ax.get_subplotspec().rowspan)
         gridline_kw_loc={}
-        gridline_kw_loc['right_labels'] = (not self.xr_cbar) and (icol == self.ncols-1)
-        gridline_kw_loc['left_labels'] = icol == 0 if self.ncols>1 else True
-        gridline_kw_loc['top_labels'] = irow == 0 if self.nrows>1 else True
-        gridline_kw_loc['bottom_labels'] = irow == self.nrows-1
+        gridline_kw_loc['right_labels'] = (not self.xr_cbar) and (colspan[-1]==self.ncols-1)
+        gridline_kw_loc['left_labels'] = colspan[0] == 0
+        gridline_kw_loc['top_labels'] = rowspan[0] == 0
+        gridline_kw_loc['bottom_labels'] = rowspan[-1] == self.nrows-1
+
 
         # set the color and create
         color = 'white' if self.background == 'black' or self.background == 'gray' else 'gray'

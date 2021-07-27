@@ -24,6 +24,7 @@ def plot_meltrate(ds,sp=None,ax=None,
                   units='Mt/yr',
                   cbar_kwargs={},
                   textcolor=None,
+                  texttitle=None,
                   **kwargs):
     """make nice meltrate plot with desired units
 
@@ -106,11 +107,15 @@ def plot_meltrate(ds,sp=None,ax=None,
         if textcolor is None:
             textcolor='white' if sp.background=='black' else None
 
-        txt=''
+        tY = -74.85 #if texttitle is None else -74.685
+
+        txt='' if texttitle is None else texttitle+'\n'
         for key, val in tdict.items():
             txt+=f'{key}: {val[0]:.2f} {val[1]}\n'
-        ax.text(-102.7,-74.85,txt,color=textcolor,
-                transform=ccrs.PlateCarree())
+        ax.text(-102.075,tY,txt,
+                color=textcolor,
+                transform=ccrs.PlateCarree(),
+                horizontalalignment='center')
 
     return returns
 
@@ -121,7 +126,9 @@ def plot_barostf(ds,grid,sp=None,ax=None,
                  addQuiver=False,
                  addText=True,
                  vmax=0.2,
-                 cmap='cmo.balance'):
+                 cmap='cmo.balance',
+                 cbar_kwargs={},
+                 **kwargs):
     """Plot barotropic streamfuncion
 
     Parameters
@@ -171,17 +178,24 @@ def plot_barostf(ds,grid,sp=None,ax=None,
         dlo = int(np.abs(xds.Z.min().values))
         label += f'\n Depth: {dup}-{dlo}m'
 
-    cbar_kwargs={'extend':'max','label':label,
-                 'ticks':1e-1*np.arange(-2,3,1)}
+    if cbar_kwargs == {}:
+        cbar_kwargs={'extend':'max','label':label,
+                     'ticks':1e-1*np.arange(-2,3,1)}
 
     # plot
     sp = StereoPlot() if sp is None else sp
     if ax is None:
-        fig,ax = sp.plot(barostf,vmin=-vmax,vmax=vmax,cmap=cmap,
-                         cbar_kwargs=cbar_kwargs)
+        results = sp.plot(barostf,vmin=-vmax,vmax=vmax,cmap=cmap,
+                         cbar_kwargs=cbar_kwargs, **kwargs)
     else:
-        fig,ax = sp.plot(barostf,ax=ax,vmin=-vmax,vmax=vmax,cmap=cmap,
-                         cbar_kwargs=cbar_kwargs)
+        results = sp.plot(barostf,ax=ax,vmin=-vmax,vmax=vmax,cmap=cmap,
+                         cbar_kwargs=cbar_kwargs, **kwargs)
+
+    if cbar_kwargs is not None:
+        fig,ax = results
+    else:
+        fig,ax,mappable = results
+
 
     if addBathyContours:
         ds.Depth.plot.contour(cmap='gray_r',levels=15,alpha=.3,ax=ax,
@@ -198,7 +212,10 @@ def plot_barostf(ds,grid,sp=None,ax=None,
                 f'Max: {float(barostf.max()):.2f} Sv\nMin: {float(barostf.min()):.2f} Sv',
                 fontsize=16,color='white',transform=ccrs.PlateCarree());
 
-    return fig,ax
+    if cbar_kwargs is not None:
+        return fig,ax
+    else:
+        return fig,ax,mappable
 
 def plot_lcurve_discrep(ds,d3,dim1='sigma',dim2='Nx',dim3='Fxy',
                         fig=None,axs=None,
