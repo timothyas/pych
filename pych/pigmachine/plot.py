@@ -70,6 +70,9 @@ def plot_meltrate(ds,sp=None,ax=None,
         meltrate = -convert_units(ds[fld],units_out=convertto)
         meltrate = meltrate*ds['rA'] if units=='Mt/yr' else meltrate
 
+        # always get Mt/yr for total
+        meltrateMT = -ds['rA']*convert_units(ds[fld],units_out='Mt/m^2/yr')
+
     if ax is None and sp is None:
         sp = StereoPlot()
 
@@ -96,9 +99,11 @@ def plot_meltrate(ds,sp=None,ax=None,
     # add some nice text
     if add_text:
         tdict = {}
-        tdict['Mean'] = [float(meltrate.mean().values),units]
-        tdict['Max'] = [float(meltrate.max().values),units]
-        tdict['Total'] = [float(meltrate.sum(['XC','YC']).values),units]
+        # omittimg mean for now
+        #mean = (meltrate*ds.rA).sum() / ds.rA.sum()
+        #tdict['Mean'] = [float(mean),units]
+        #tdict['Max'] = [float(meltrate.max().values),units]
+        tdict['Total'] = [float(meltrateMT.sum(['XC','YC']).values),'Mt/yr']
         for key, val in tdict.items():
             if val[0]>1000:
                 val[1] = val[1].replace('M','G')
@@ -408,15 +413,27 @@ def streamplot(ds,grid,ax=None,maskW=None,maskS=None, ke_threshold=.1,
     v = v.where(ke>ke_threshold*ke.max(),np.nan)
 
     # quiver wants numpy arrays
-    if scaleByKE>0.:
-        if kwargs is not None:
-            assert 'linewidth' not in kwargs.keys(), \
-                    'do not pass linewidth if scaling by KE'
+    if scaleByKE is not None:
+        kwargs = {} if kwargs is None else kwargs
+        #if kwargs is not None:
+        #    #assert 'linewidth' not in kwargs.keys(), \
+        #    #        'do not pass linewidth if scaling by KE'
+        #    pass
+        #else:
+        #    kwargs={}
+
+        if isinstance(scaleByKE,(list,tuple)):
+            key = scaleByKE[0]
+            ratio_factor = scaleByKE[1]
         else:
-            kwargs={}
+            key = 'linewidth'
+            ratio_factor = scaleByKE
+
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            kwargs['linewidth'] = xr.where(ke>0,scaleByKE*ke/ke.max(),0.).values
+            scaling = xr.where(ke>0,ratio_factor*ke/ke.max(),0.).values
+
+        kwargs[key] = scaling
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
