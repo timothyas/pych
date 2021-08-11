@@ -17,7 +17,7 @@ def get_section_tracers(fldc,left,right,nx=100,mask_field=True):
     left, right : tuple or list of 2 floats
         Containing lon/lat bounding points
     nx : int, optional
-        Number of interpolation points 
+        Number of interpolation points
     mask_field : bool, optional
         Mask out "non-wet" points, if True 'maskC'
         must be in fldc.coords
@@ -54,7 +54,8 @@ def get_section_tracers(fldc,left,right,nx=100,mask_field=True):
 
     return fldi[fldc.name]
 
-def get_section_trsp(fldx,fldy,grid,left,right,nx=100):
+def get_section_trsp(fldx,fldy,grid,left,right,nx=100,
+                     is_normal=True):
     """
     Interpolate a vector field to a section line, returning
     the normal component
@@ -68,7 +69,7 @@ def get_section_trsp(fldx,fldy,grid,left,right,nx=100):
     left, right : tuple or list of 2 floats
         Containing lon/lat bounding points
     nx : int, optional
-        Number of interpolation points 
+        Number of interpolation points
 
     Returns
     -------
@@ -101,7 +102,19 @@ def get_section_trsp(fldx,fldy,grid,left,right,nx=100):
     sin = dyc / np.sqrt(dxc**2 + dyc**2)
     cos = dxc / np.sqrt(dxc**2 + dyc**2)
 
-    q = -sin*uvel + cos*vvel
+
+    # This rotation uses a negative angle rotation:
+    # https://en.wikipedia.org/wiki/Rotation_matrix#Direction
+    # consider purely zonal flow: (u,v) = (1,0)
+    # and a low angle rotation, say theta=15
+    # i.e. xaxis from "->" to "/^", but less dramatic  than I can draw here
+    # then in the new coordinate system, this flow will
+    # be mostly positive in the new zonal direction (close to one)
+    # but the new v component will be slightly negative
+    if is_normal:
+        q = -sin*uvel + cos*vvel
+    else:
+        q = cos*uvel + sin*vvel
     myname=fldx.name[:-1]#drop the W,S
     q.name=myname
 
