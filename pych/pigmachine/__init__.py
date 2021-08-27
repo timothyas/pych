@@ -14,6 +14,7 @@ from .moorings import (make_mooring_obs,
 from .oidriver import OIDriver
 
 from .optim import OptimDriver,OptimDataset
+from .optimspin import OptimSpinDriver
 
 from .plot import (
         plot_meltrate, plot_barostf,
@@ -32,5 +33,6 @@ from .time import calc_variability
 from .utils import convert_units
 
 __all__ = ['io','interp_obcs','matern','moorings',
-           'OIDriver','OptimDriver','OptimDataset','plot','shelfice',
+           'OIDriver','OptimDriver','OptimDataset','OptimSpinDriver',
+           'plot','shelfice',
            'StereoPlot','time','utils']
