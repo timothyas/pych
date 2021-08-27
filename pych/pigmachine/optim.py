@@ -34,8 +34,8 @@ class OptimDriver:
         >>> myoi = OIDriver('myoi',stage=mystage,optim_iter=optimcycle)
 
     """
-    slurm = {'be_nice':True,
-             'max_job_submissions':9,
+    slurm = {'be_nice':False,
+             'max_job_submissions':10,
              'dependency':'afterok'}
     conda_env = 'py38_tim'
     optim_iter_max = 1000
