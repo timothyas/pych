@@ -179,7 +179,7 @@ class OptimSpinDriver:
             if stage in ('adm','fwd'):
                 eval(f'self.run_gcm(optim_iter={optim_iter}, gcm_type="{stage}")')
             else:
-                eval(f'self.run_m1qn3(optim_iter={optim_iter}')
+                eval(f'self.run_m1qn3(optim_iter={optim_iter})')
         else:
             if stage is not None:
                 raise NameError(f'Incorrectly specified stage: {stage}.\n'+\
@@ -256,25 +256,26 @@ class OptimSpinDriver:
         m1qn3_dir = self.get_m1qn3_dir()
         dsim = self.adm_sim if gcm_type =='adm' else self.fwd_sim
 
-        # Handle pickups
-        if  (optim_iter > 0 and gcm_type == 'adm') or \
-            (optim_iter > 1 and gcm_type == 'fwd'):
+        # --- Pickups 1: first kill the pickup_dir if needed
+        #     then let the sim create the run directory, etc
+        #     fwd: always uses same pickups to do original spinup+this iter's ctrl
+        #     adm: use what fwd just gave you
+        if  (optim_iter > 0 and gcm_type == 'adm'):
             dsim['pickup_dir'] = None
-            if gcm_type == 'fwd':
-                previous_fwd_dir = self.get_run_dir(optim_iter-1, 'fwd')
-            else:
-                previous_fwd_dir = self.get_run_dir(optim_iter, 'fwd')
-
-            for suffix in ['meta','data']:
-
-                old_pickup = os.path.join(previous_fwd_dir,
-                                          f'pickup.{nIterSpinFinal:010d}.{suffix}')
-                new_pickup = os.path.join(run_dir,
-                                          f'pickup.{nIter0:010d}.{suffix}')
-                copyfile(old_pickup, new_pickup)
 
 
         sim = rp.Simulation(run_dir=run_dir,**dsim)
+
+        # --- Pickups 2: now copy over
+        if  (optim_iter > 0 and gcm_type == 'adm'):
+            previous_fwd_dir = self.get_run_dir(optim_iter, 'fwd')
+            for suffix in ['meta','data']:
+
+                old_pickup = os.path.join(previous_fwd_dir,
+                                          f'pickup.{self.nIterSpinFinal:010d}.{suffix}')
+                new_pickup = os.path.join(run_dir,
+                                          f'pickup.{self.nIter0:010d}.{suffix}')
+                copyfile(old_pickup, new_pickup)
 
         # 1. write data.ctrl
         self.write_ctrl_namelist(optim_iter, gcm_type)
