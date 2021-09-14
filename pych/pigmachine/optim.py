@@ -515,6 +515,11 @@ class OptimDataset():
         both['iters'] = xr.DataArray(np.asarray(iters),coords=both.simul.coords,dims=both.simul.dims)
         both = both.set_coords('iters')
 
+        # cleanup
+        both['simulIsIter'] = xr.where(np.isnan(ds['simulIsIter']),False,ds['simulIsIter']).astype(bool)
+        both['iters'] = ds.iters.where(ds.simulIsIter)
+        both['simulAtMaxIter'] = ds.simul.where(ds.simulIsIter).max('simul')
+
         return both
 
     def read_cost_function(self):
