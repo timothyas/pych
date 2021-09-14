@@ -9,9 +9,75 @@ import os
 import numpy as np
 import xarray as xr
 from MITgcmutils import wrmds
-from scipy.special import gamma
+from scipy.special import gamma, kv
 
 from .io import read_mds
+
+def calc_correlation_field(xda, mask,
+                           dimlist=['Z','YC'],
+                           n_shift=15,
+                           mask_in_betweens=False):
+    """calculate the correlation field for each shifted distance
+
+    Parameters
+    ----------
+    xda : xarray.DataArray
+        The field to compute correlations on, over the 'sample' dimension
+    mask : xarra.DataArray
+        True/False inside/outside of domain
+    dimlist : list of str
+        denoting dimensions to compute shifted correlations
+    n_shift : int
+        number of shifts to do
+    mask_in_betweens : bool, optional
+        if True, then if there is a portion of the domain such that for a
+        particular dimension, there is a gap between two points, ignore all
+        points with larger correlation length than where the gap occurs
+        doesn't affect results much
+    """
+
+    xds = xr.Dataset()
+    shifty = np.arange(-n_shift,n_shift+1)
+    shifty = xr.DataArray(shifty,coords={'shifty':shifty},dims=('shifty',))
+    xds['shifty'] = shifty
+
+    for dim in dimlist:
+        corrfld = f'corr_{dim.lower()}'
+        template = xda.isel(sample=0).drop('sample')
+        xds[corrfld] = xr.zeros_like(shifty*template)
+
+        x_deviation = (xda - xda.mean('sample')).where(mask)
+        x_ssr = np.sqrt( (x_deviation**2).sum('sample') )
+
+        for s in shifty.values:
+            y_deviation = x_deviation.shift({dim:s})
+            numerator = (x_deviation*y_deviation).sum('sample')
+
+            y_ssr = np.sqrt( (y_deviation**2).sum('sample') )
+            denominator = x_ssr*y_ssr
+
+            xds[corrfld].loc[{'shifty':s}] = numerator / denominator
+
+    if mask_in_betweens:
+        for dim in dimlist:
+            corrfld = f'corr_{dim.lower()}'
+            for s in shifty.values:
+                if s < 0:
+                    bigger_than = shifty<s
+                else:
+                    bigger_than = shifty>s
+
+                imnan = np.isnan(xds[corrfld].sel(shifty=s))
+                xds[corrfld] = xr.where(bigger_than*imnan,np.nan,xds[corrfld])
+    return xds
+
+def corr_iso(dist, Nx, ndims):
+    nu = .5 if ndims == 3 else 1
+    fact = 2**(1-nu) / gamma(nu)
+    arg = np.sqrt(8*nu)/Nx * dist
+    left =  (arg)**nu
+    right = kv(nu, arg)
+    return fact*left*right
 
 def calc_variance(Nx,ndims=2):
     nu = 1/2 if ndims==3 else 1
