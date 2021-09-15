@@ -16,6 +16,28 @@ from .matern import calc_variance
 from .utils import convert_units
 from ..calc import calc_baro_stf
 
+def fix_obcsw_plot(ax,
+                   xlim=[-75.2,None],
+                   ylim=[-1150,0],
+                   background='gray'):
+    ax.set(xlabel='',ylabel='',title='',
+           xlim=xlim,ylim=ylim)
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    dY = ylim[1]-ylim[0]
+    dX = xlim[1]-xlim[0]
+    ax.grid(False)
+    ax.add_patch(plt.Rectangle((xlim[0],ylim[0]),dX,dY,
+                               facecolor=background,
+                               zorder=0))
+
+    nrows = ax.get_gridspec().nrows
+    if ax.get_subplotspec().colspan[0]==0:
+        ax.set_ylabel('Height\n(m)',labelpad=30,rotation=0)
+    if ax.get_subplotspec().rowspan[0]==nrows-1:
+        ax.set_xlabel('Latitude')
+    return ax
+
 def plot_meltrate(ds,sp=None,ax=None,
                   cmap='inferno',
                   add_text=True,

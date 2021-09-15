@@ -17,6 +17,7 @@ from .optim import OptimDriver,OptimDataset
 from .optimspin import OptimSpinDriver
 
 from .plot import (
+        fix_obcsw_plot,
         plot_meltrate, plot_barostf,
         quiver,
         streamplot,
