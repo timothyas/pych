@@ -504,7 +504,7 @@ class OptimDataset():
             if mysimul not in simuls:
                 both['simulIsIter'].loc[{'simul':mysimul}] = False
         iters=[]
-        i=1
+        i=0
         for k in both.simul.values:
             if both.simulIsIter.sel(simul=k).values:
                 myiter = i
@@ -516,11 +516,12 @@ class OptimDataset():
         both = both.set_coords('iters')
 
         # cleanup
-        both['simulIsIter'] = xr.where(np.isnan(ds['simulIsIter']),False,ds['simulIsIter']).astype(bool)
-        both['iters'] = ds.iters.where(ds.simulIsIter)
-        both['simulAtMaxIter'] = ds.simul.where(ds.simulIsIter).max('simul')
+        both['simulIsIter'] = xr.where(np.isnan(both['simulIsIter']),False,both['simulIsIter']).astype(bool)
+        both['iters'] = both.iters.where(both.simulIsIter)
+        both['simulAtMaxIter'] = both.simul.where(both.simulIsIter).max('simul')
 
         return both
+
 
     def read_cost_function(self):
         """ return a dataset with just costfunction stuff
