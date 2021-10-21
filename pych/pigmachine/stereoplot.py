@@ -85,6 +85,7 @@ class StereoPlot():
 
     def plot(self, xda, ax=None,
              cbar_kwargs={},
+             gridline_kwargs={},
              plot=None,
              **kwargs):
         """Main StereoPlot routine, plot a single 2D xarray DataArray
@@ -101,6 +102,9 @@ class StereoPlot():
             options for the colorbar, e.g. "label" or "orientation"
             pass as None to turn off colorbar
             the only default: "orientation":"horizontal"
+        gridline_kwargs : dict, optional
+            arguments passed to self.add_gridlines, which is used to set
+            attributes in the gridline object. E.g. {"right_labels":True}
 
         Returns
         -------
@@ -155,7 +159,7 @@ class StereoPlot():
                                    transform=ccrs.PlateCarree(),
                                    zorder=0))
 
-        self.add_gridlines(ax)
+        self.add_gridlines(ax,**gridline_kwargs)
 
         if not (cbar_kwargs is None or self.xr_cbar):
             self.add_colorbar(mappable, ax, cbar_kwargs)
@@ -163,13 +167,15 @@ class StereoPlot():
         elif cbar_kwargs is None:
             return self.fig, ax, mappable
 
-    def add_gridlines(self,ax):
+    def add_gridlines(self,ax,**kwargs):
         """helper method for StereoPlot.plot
         add gridlines to plot with axis ax
 
         Parameters
         ----------
         ax : matplotlib.axis
+        kwargs : optional
+            override gridline_kw_loc, e.g. "right_labels" or "left_labels"
         """
 
         colspan = list(ax.get_subplotspec().colspan)
@@ -180,6 +186,9 @@ class StereoPlot():
         gridline_kw_loc['top_labels'] = rowspan[0] == 0
         gridline_kw_loc['bottom_labels'] = rowspan[-1] == self.nrows-1
 
+        if kwargs is not None:
+            for key,val in kwargs.items():
+                gridline_kw_loc[key] = val
 
         # set the color and create
         color = 'white' if self.background == 'black' or self.background == 'gray' else 'gray'
