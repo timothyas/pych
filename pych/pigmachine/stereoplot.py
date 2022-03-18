@@ -38,6 +38,7 @@ class StereoPlot():
                  xr_cbar=False,
                  subplot_kw=None,
                  just_init_fig=False,
+                 do_nothing=False,
                  **kwargs):
         """Create StereoPlot object
 
@@ -55,19 +56,22 @@ class StereoPlot():
             passed to matplotlib.pyplot.subplots
         """
 
+        self.projection = ccrs.SouthPolarStereo(central_longitude=self.lon0)
         skw=subplot_kw if subplot_kw is not None else \
-            {'projection':ccrs.SouthPolarStereo(central_longitude=self.lon0)}
+            {'projection':self.projection}
+        if not do_nothing:
+            if not just_init_fig:
+                fig,axs = plt.subplots(nrows=nrows,ncols=ncols,
+                                       figsize=figsize,
+                                       subplot_kw=skw,
+                                       **kwargs)
+                if isinstance(axs,list):
+                    axs = np.ndarray(axs)
+                self.axs = axs
+            else:
+                fig = plt.figure(figsize=figsize)
 
-        if not just_init_fig:
-            fig,axs = plt.subplots(nrows=nrows,ncols=ncols,
-                                   figsize=figsize,
-                                   subplot_kw=skw,
-                                   **kwargs)
-            if isinstance(axs,list):
-                axs = np.ndarray(axs)
-            self.axs = axs
-        else:
-            fig = plt.figure(figsize=figsize)
+            self.fig = fig
 
         if ncols*nrows>1:
             self.isSingle = False
@@ -75,7 +79,6 @@ class StereoPlot():
         else:
             self.isSingle = True
 
-        self.fig = fig
         self.nrows=nrows
         self.ncols=ncols
         self.xr_cbar = xr_cbar

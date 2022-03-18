@@ -13,7 +13,7 @@ from .calc import (
 
 from .get_section_masks import get_section_line_masks
 
-from .interp_section import get_section_tracers
+from .interp_section import get_section_tracers, get_section_trsp
 
 from .mitgcm_utils import set_data_singleCPUIO, all_verification_singleCPUIO
 
