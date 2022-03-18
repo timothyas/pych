@@ -23,6 +23,8 @@ from .plot import (
         streamplot,
         plot_map_and_misfits, plot_lcurve_discrep)
 
+from .sampledriver import SampleDriver
+
 from .shelfice import (
         get_icefront,
         calc_phiHyd, calc_phi0surf, get_3d_mask)
