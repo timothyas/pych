@@ -58,6 +58,7 @@ class OIDriver:
     dataprec = 'float64'
     NxList  = [5, 10, 15, 20, 30, 40]
     xiList  = [0.5,   1,   2]#,   5]
+    isotropic = False
     sorDict = {0.5:1.8, 1:1.6, 2:1.3, 4:1.2, 5:1.2}
     n_sigma = 9
     sigma = 10**np.linspace(-5,-3,n_sigma)
@@ -291,7 +292,8 @@ class OIDriver:
                 matern.write_matern(write_dir,
                                     smoothOpNb=self.smoothOpNb,
                                     Nx=Nx,mymask=self.ctrl.mask,
-                                    xdalike=self.mymodel,xi=xi)
+                                    xdalike=self.mymodel,xi=xi,
+                                    isotropic=self.isotropic)
 
                 sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_oi_ra1',
                                     run_dir=run_dir,
@@ -420,7 +422,7 @@ class OIDriver:
                 ds['ginv'].load();
 
                 # Get randNorm
-                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask, isotropic=self.isotropic)
 
                 # Form Y, range approximator
                 Y = []
@@ -560,7 +562,7 @@ class OIDriver:
                 ds['ginv'].load();
 
                 # Get randNorm
-                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask,isotropic=self.isotropic)
 
                 # Get Hm Q
                 HmQ = []
@@ -691,7 +693,7 @@ class OIDriver:
                 ds['ginv'].load();
 
                 # Get randNorm
-                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask)
+                C, _ = matern.get_matern(Nx=Nx,xi=xi,mymask=self.ctrl.mask,isotropic=self.isotropic)
 
                 prior_misfit2model = self.ctrl.pack(C['randNorm']*ds['ginv'])
 
@@ -749,7 +751,7 @@ class OIDriver:
                 filternorm = self.ctrl.unpack(evds['filternorm'].sel(Nx=Nx,xi=xi))
                 filterstd = xr.where(filternorm!=0,filternorm**-1,0.)
 
-                C,K = matern.get_matern(Nx=Nx,mymask=self.ctrl.mask,xi=xi)
+                C,K = matern.get_matern(Nx=Nx,mymask=self.ctrl.mask,xi=xi,isotropic=self.isotropic)
 
                 # for rayleigh quotients, get eigenvectors of Hessian (not PPMH)
                 if self.doRayleigh:
@@ -1001,7 +1003,7 @@ class OIDriver:
         wrmds(fname,arr=fld,dataprec=self.dataprec,nrecords=nrecs)
         matern.write_matern(write_dir,
                  smoothOpNb=self.smoothOpNb,Nx=Nx,mymask=self.ctrl.mask,
-                 xdalike=self.mymodel,xi=xi)
+                 xdalike=self.mymodel,xi=xi, isotropic=self.isotropic)
         sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_{run_suff}',
                             run_dir=run_dir,
                             obs_dir=write_dir,**self.dsim)
@@ -1073,8 +1075,6 @@ class OIDriver:
     def _get_dirs(self,stage,Nx,xi):
         """return read_dir, write_dir, and run_dir for a specific stage"""
 
-
-
         if stage == 'range_approx_one':
             read_str  = None
             write_str = 'matern'+self.gridloc
@@ -1120,12 +1120,22 @@ class OIDriver:
 
         numsuff = f'.{Nx:02}dx.{xi:02}xi'
         if read_str is not None:
+
+            # --- Add isotropic suffix here
+            if self.isotropic:
+                read_str = read_str + '.isotropic'
+
             read_str += '/run' + numsuff
             read_dir = self.dirs["main_run"] + '/' + read_str
         else:
             read_dir = None
 
         if write_str is not None:
+
+            # --- Add isotropic suffix here
+            if self.isotropic:
+                write_str = write_str + '.isotropic'
+
             write_dir = write_str + '/input' + numsuff
             run_dir   = write_str + '/run'   + numsuff
             write_dir = _dir(self.dirs['main_run']+'/'+write_dir)

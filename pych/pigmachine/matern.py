@@ -110,7 +110,7 @@ def get_alpha(ds):
     xda.name = 'alpha'
     return xda
 
-def getPhi(mymask,xi=1):
+def getPhi(mymask, xi=1, isotropic=False):
     """Return Jacobian of deformation tensor as a dict
 
               ux   0   0
@@ -139,17 +139,27 @@ def getPhi(mymask,xi=1):
 
     if ndims==2:
         if set(('XC','YC')).issubset(mymask.dims):
-            return {'ux':ux/xi,'vy':vy/xi}
+            Phi = {'ux':ux/xi,'vy':vy/xi}
         elif set(('YC','Z')).issubset(mymask.dims):
-            return {'vy':vy,'wz':wz}
+            Phi = {'vy':vy,'wz':wz}
         elif set(('XC','Z')).issubset(mymask.dims):
-            return {'ux':ux,'wz':wz}
+            Phi = {'ux':ux,'wz':wz}
         else:
             raise TypeError('getPhi dims problem 2d')
+
     elif ndims==3:
-        return {'ux':ux,'vy':vy,'wz':wz}
+        Phi = {'ux':ux,'vy':vy,'wz':wz}
     else:
         raise TypeError('Only 2d or 3d for this phd')
+
+    # --- For isotropic case, rewrite Jacobian with ones
+    if isotropic:
+        isoPhi = {}
+        for key,val in Phi.items():
+            isoPhi[key] = xr.ones_like(val)
+
+        Phi = isoPhi
+    return Phi
 
 def get_delta(Nx,determinant,mymask):
     ndims = len(mymask.dims)
@@ -177,12 +187,19 @@ def get_cell_volume(mymask):
     else:
         return mymask['drF']*L**2
 
-def get_matern(Nx,mymask,xi=1):
+def get_matern(Nx, mymask, xi=1, isotropic=False):
+    """
+    Parameters
+    ----------
+    ...
+    isotropic: bool, optional
+        if True, overwrite K terms with ones
+    """
 
     C = {}
     K = {}
     ndims = len(mymask.dims)
-    Phi = getPhi(mymask,xi=xi)
+    Phi = getPhi(mymask, xi=xi, isotropic=isotropic)
     C['alpha'] = get_alpha(mymask.to_dataset(name='mask')).broadcast_like(mymask)
     C['Nx'] = Nx
     if ndims == 2:
@@ -217,7 +234,7 @@ def get_matern(Nx,mymask,xi=1):
                         raise TypeError(f'dim order for {lbl}[{key}] is: ',val.dims)
     return C,K
 
-def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,xi=1):
+def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,xi=1, isotropic=False):
     """Write everything to describe the SPDE operator associated
     with the Matern covariance
 
@@ -239,7 +256,7 @@ def write_matern(write_dir,smoothOpNb,Nx,mymask,xdalike,xi=1):
     ndims = len(mymask.dims)
 
     # Make the tensor and put into big array
-    C,K = get_matern(Nx,mymask,xi=xi)
+    C,K = get_matern(Nx, mymask, xi=xi, isotropic=isotropic)
 
     # Write out the fields
     if not os.path.isdir(write_dir):
