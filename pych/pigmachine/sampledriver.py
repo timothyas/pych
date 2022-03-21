@@ -24,9 +24,7 @@ from xmitgcm import open_mdsdataset
 from MITgcmutils import rdmds, wrmds
 import rosypig as rp
 
-from . import matern
-from .. import pigmachine as pm
-from .notation import get_nice_attrs
+from .newmatern import MaternField
 
 class SampleDriver:
     """Defines the driver for getting an Eigenvalue decomposition
@@ -193,6 +191,9 @@ class SampleDriver:
         # --- If kwargs exist, use to rewrite default attributes
         if kwargs is not None:
             for key,val in kwargs.items():
+                # json saves dicts with str keys
+                if key == 'sorDict':
+                    val = {float(k2):v2 for k2,v2 in val.items()}
                 setattr(self, key, val)
 
     def _send_to_stage(self,stage):
@@ -232,13 +233,12 @@ class SampleDriver:
                                    smooth_apply=False,
                                    num_inputs=self.n_samples)
 
-                matern.write_matern(write_dir,
-                                    smoothOpNb=self.smoothOpNb,
-                                    Nx=Nx,
-                                    mymask=self.ctrl.mask,
-                                    xdalike=self.mymodel,
-                                    xi=xi,
-                                    isotropic=self.isotropic)
+                matern = MaternField(xdalike=self.mymodel,
+                                     n_range=Nx,
+                                     horizontal_factor=xi,
+                                     isotropic=self.isotropic)
+                matern.write_binaries(write_dir=write_dir,
+                                      smoothOpNb=self.smoothOpNb)
 
                 sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_oi_ra1',
                                     run_dir=run_dir,
@@ -259,6 +259,7 @@ class SampleDriver:
         """write the data.smooth file
         """
         ndims = len(self.mymodel.dims)
+        ndims = ndims-1 if 'face' in self.mymodel.dims or 'tile' in self.mymodel.dims else ndims
         smooth = f'smooth{ndims}D'
         alg = 'matern'
         alg = alg if not smooth_apply else alg+'apply'
@@ -285,44 +286,6 @@ class SampleDriver:
         with open(fname,'w') as f:
             f.write(file_contents)
 
-
-    def submit_matern(self,
-                      fld,
-                      Nx,
-                      xi,
-                      write_dir,
-                      run_dir,
-                      run_suff):
-        """Use the MITgcm to smooth a small number of fields, wait for result
-
-        Inputs
-        ------
-        fld : xarray DataArray
-            with possibly multiple records,
-        Nx, xi : int
-            specifies the prior
-        write_dir, run_dir : str
-            telling the simulation where to do stuff
-        """
-
-        nrecs = fld.shape[0] if fld.shape!=self.ctrl.mask.shape else 1
-
-        # --- Write and submit
-        fld = fld.reindex_like(self.mymodel).values
-        fname = f'{write_dir}/smooth2DInput{self.smoothOpNb:03}'
-        wrmds(fname,arr=fld,dataprec=self.dataprec,nrecords=nrecs)
-        matern.write_matern(write_dir,
-                 smoothOpNb=self.smoothOpNb,Nx=Nx,mymask=self.ctrl.mask,
-                 xdalike=self.mymodel,xi=xi, isotropic=self.isotropic)
-        sim = rp.Simulation(name=f'{Nx:02}dx_{xi:02}xi_{run_suff}',
-                            run_dir=run_dir,
-                            obs_dir=write_dir,**self.dsim)
-
-        sim.link_to_run_dir()
-        sim.write_slurm_script()
-        jid = sim.submit_slurm(**self.slurm)
-
-        return jid,sim
 
 
     def submit_next_stage(self,next_stage, mysim, jid_depends=None):
@@ -387,7 +350,7 @@ class SampleDriver:
 
         if stage == 'range_approx_one':
             read_str  = None
-            write_str = 'matern'+self.gridloc
+            write_str = self.experiment+'-'+self.gridloc
 
         else:
             raise NameError(f'Unexpected stage for directories: {stage}')

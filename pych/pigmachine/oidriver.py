@@ -249,6 +249,9 @@ class OIDriver:
             for key,val in kwargs.items():
                 if key == 'sigma' and isinstance(val,list):
                     val = np.array(val)
+                # json saves dicts with str keys
+                if key == 'sorDict':
+                    val = {float(k2):v2 for k2,v2 in val.items()}
                 self.__dict__[key] = val
 
     def _send_to_stage(self,stage):
