@@ -75,8 +75,9 @@ class SampleDriver:
 
             'range_approx_one' : first stage of range approximation
         """
-        self.experiment = experiment
-        self._send_to_stage(stage)
+        raise DeprecationWarning("Using implementation in separate repo")
+        #self.experiment = experiment
+        #self._send_to_stage(stage)
 
 
     def start(self, dirs, dsim, mymodel, ctrl_ds,

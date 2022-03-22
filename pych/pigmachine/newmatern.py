@@ -16,50 +16,51 @@ class MaternField():
     def __init__(self, xdalike, n_range, horizontal_factor,
                  isotropic=False):
 
-        self.xdalike = xdalike
-        self.n_range = n_range
-        self.horizontal_factor = horizontal_factor
-        self.isotropic = isotropic
-
-        # Set some properties that don't change
-        self.dims = xdalike.dims
-        self.llc = 'face' in xdalike.dims or 'tile' in xdalike.dims
-        self.n_dims = xdalike.ndim - 1 if self.llc else xdalike.ndim
-        self.xyz = _get_dims(self.dims)
-
-        try:
-            assert self.n_dims == 2 or self.n_dims == 3
-        except:
-            raise TypeError(f"Only 2D or 3D data, got n_dims={self.n_dims} with data {self.xdalike}")
-
-        if self.llc and self.n_dims == 3 and self.xyz['z'] != 'k':
-            raise NotImplementedError(f"vertical dimension needs to be 'k' due to line 1709 in xmitgcm.utils...")
-
-        if self.llc and self.n_dims == 2 and self.xyz['z'] is not None:
-            raise NotImplementedError(f"Due to writing routines (and probably other problems), can't do X-Z or Y-Z slice in LLC grid ... it's a global grid anyway!")
-
-        self.mean_differentiability = 1/2 if self.n_dims == 3 else 1
-        self.delta_hat = 8*self.mean_differentiability / (self.n_range**2)
-
-        denom = scipy.special.gamma(self.mean_differentiability + self.n_dims/2) * \
-                ((4*np.pi)**(self.n_dims/2)) * \
-                self.delta_hat**self.mean_differentiability
-        self.ideal_variance = scipy.special.gamma(self.mean_differentiability) / denom
-
-        self.horizontal_length = _horizontal_length_scale(xdalike)
-        self.vertical_length = _vertical_length_scale(xdalike)
-        self.cell_volume = self.get_cell_volume()
-
-
-        self.Phi, self.detPhi = self.get_deformation_jacobian()
-        self.rhs_factor = 1 / np.sqrt(self.detPhi) / np.sqrt(self.cell_volume)
-        self.delta = (self.delta_hat / self.detPhi ).broadcast_like(xdalike)
-        self.delta.name = 'delta'
-
-        K = {}
-        for key, val in self.Phi.items():
-            K[key] = 1 / self.detPhi * self.Phi[key]**2
-        self.K = K
+        raise DeprecationWarning("Using implementation in separate repo")
+#        self.xdalike = xdalike
+#        self.n_range = n_range
+#        self.horizontal_factor = horizontal_factor
+#        self.isotropic = isotropic
+#
+#        # Set some properties that don't change
+#        self.dims = xdalike.dims
+#        self.llc = 'face' in xdalike.dims or 'tile' in xdalike.dims
+#        self.n_dims = xdalike.ndim - 1 if self.llc else xdalike.ndim
+#        self.xyz = _get_dims(self.dims)
+#
+#        try:
+#            assert self.n_dims == 2 or self.n_dims == 3
+#        except:
+#            raise TypeError(f"Only 2D or 3D data, got n_dims={self.n_dims} with data {self.xdalike}")
+#
+#        if self.llc and self.n_dims == 3 and self.xyz['z'] != 'k':
+#            raise NotImplementedError(f"vertical dimension needs to be 'k' due to line 1709 in xmitgcm.utils...")
+#
+#        if self.llc and self.n_dims == 2 and self.xyz['z'] is not None:
+#            raise NotImplementedError(f"Due to writing routines (and probably other problems), can't do X-Z or Y-Z slice in LLC grid ... it's a global grid anyway!")
+#
+#        self.mean_differentiability = 1/2 if self.n_dims == 3 else 1
+#        self.delta_hat = 8*self.mean_differentiability / (self.n_range**2)
+#
+#        denom = scipy.special.gamma(self.mean_differentiability + self.n_dims/2) * \
+#                ((4*np.pi)**(self.n_dims/2)) * \
+#                self.delta_hat**self.mean_differentiability
+#        self.ideal_variance = scipy.special.gamma(self.mean_differentiability) / denom
+#
+#        self.horizontal_length = _horizontal_length_scale(xdalike)
+#        self.vertical_length = _vertical_length_scale(xdalike)
+#        self.cell_volume = self.get_cell_volume()
+#
+#
+#        self.Phi, self.detPhi = self.get_deformation_jacobian()
+#        self.rhs_factor = 1 / np.sqrt(self.detPhi) / np.sqrt(self.cell_volume)
+#        self.delta = (self.delta_hat / self.detPhi ).broadcast_like(xdalike)
+#        self.delta.name = 'delta'
+#
+#        K = {}
+#        for key, val in self.Phi.items():
+#            K[key] = 1 / self.detPhi * self.Phi[key]**2
+#        self.K = K
 
         # This isn't used... could delete...
         #self.aspect_ratio = _aspect_ratio(self.horizontal_length, self.vertical_length)
