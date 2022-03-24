@@ -20,7 +20,7 @@ def read_mds(data_dir,**kwargs):
 
     data_dir : string
         location of the *.meta/.data files with ECCO fields
-    all additional arguments passed to xmitgcm.open_dataset, see 
+    all additional arguments passed to xmitgcm.open_dataset, see
     https://xmitgcm.readthedocs.io/en/latest/usage.html
 
     Output
@@ -28,7 +28,7 @@ def read_mds(data_dir,**kwargs):
 
     ds : xarray Dataset
         dataset with all ECCO grid and data variables
-        see xmitgcm.open_mdsdataset for details on loading, 
+        see xmitgcm.open_mdsdataset for details on loading,
         xarray.DataSet on file format, and the ECCOv4-py
         tutorial for general help
         http://xarray.pydata.org/en/stable/
@@ -49,9 +49,9 @@ def read_mds(data_dir,**kwargs):
 
     return ds
 
-def read_single_mds(fnamebase,coords=None,dims=None):
+def read_single_mds(fnamebase, xdalike, **kwargs):
     """Read meta/data that are not grid files but do not have time stamps.
-    If coords, dims are provided, create xarray DataArray. 
+    If coords, dims are provided, create xarray DataArray.
     Otherwise, return data as numpy ndarray
 
     Parameters
@@ -66,17 +66,13 @@ def read_single_mds(fnamebase,coords=None,dims=None):
     data : numpy ndarray or xarray DataArray
     """
 
-    if (coords is None and dims is not None) and (dims is None and coords is not None):
-        return ValueError('Must provide both coords and dims')
-
     # Read in as n_timesteps x n_vertical_levels x 1170 x 90 numpy.ndarray
-    data = mut.rdmds(fnamebase)
+    data = mut.rdmds(fnamebase, **kwargs)
 
     # Convert to the 13 tile format
     data = llc_compact_to_tiles(data, less_output=True)
 
     # Potentially convert to xarray.DataArray
-    if coords is not None:
-        data = xr.DataArray(data,coords=coords,dims=dims)
+    data = xr.DataArray(data,coords=xdalike.coords,dims=xdalike.dims)
 
     return data
